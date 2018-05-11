@@ -30,7 +30,7 @@ setup(
     author='Francesco Montorsi',
     author_email='francesco.montorsi@gmail.com',
     url='https://github.com/f18m/rpm-make-rules-dependency-lister',
-    download_url='https://github.com/f18m/rpm-make-rules-dependency-lister/archive/1.0.tar.gz',
+    download_url='https://github.com/f18m/rpm-make-rules-dependency-lister/archive/v1.0.tar.gz',
     keywords=['RPM', 'GNU make', 'dependency'],
     classifiers=[
         'Programming Language :: Python :: 3',
