@@ -80,8 +80,11 @@ def get_md5sum_pairs(rpm_filename):
     
     retvalue = []
     for s in rpm_files:
-        if os.path.isfile(os.path.join(tmpdir,s)):
-            md5_sum = md5(os.path.join(tmpdir,s))
+        assert os.path.isabs(s)
+        #extracted_fname = os.path.join(tmpdir,s)   # this does not work!
+        extracted_fname = tmpdir+s   # this does not work!
+        if os.path.isfile(extracted_fname):
+            md5_sum = md5(extracted_fname)
             if len(md5_sum)>0:
                 retvalue.append( (s,md5_sum) )
 
@@ -96,8 +99,9 @@ def get_md5sum_pairs(rpm_filename):
 def match_md5sum_pairs_with_fileystem(abs_filesystem_dir, rpm_md5sum_pairs):
     """Walks given filesystem directory and searches for files matching those
        coming from an RPM packaged contents.
-       Returns a list of filesystem full paths matching RPM contents:
-           [ fullpath_to_rpm_file, ... ]
+       Returns a list of filesystem full paths matching RPM contents and a list of
+       files packaged in the RPM that could not be found:
+           [ fullpath_to_rpm_file, ... ]  [filename1_notfound, ... ]
     """
     
     if not os.path.isdir(abs_filesystem_dir):
@@ -118,10 +122,12 @@ def match_md5sum_pairs_with_fileystem(abs_filesystem_dir, rpm_md5sum_pairs):
     if verbose:
         print("In folder '{}' recursively found a total of {} files".format(abs_filesystem_dir, len(all_files_dict.keys())))
     
+    packaged_files_notfound = []
     packaged_files_fullpath = []
     for rpm_file,rpm_md5sum in rpm_md5sum_pairs:
         fname = os.path.basename(rpm_file)
-        #print(fname)
+
+        file_matched = False
         if fname in all_files_dict:
             dirname = all_files_dict[fname]
             filesystem_fullpath = os.path.join(dirname,fname)
@@ -130,10 +136,14 @@ def match_md5sum_pairs_with_fileystem(abs_filesystem_dir, rpm_md5sum_pairs):
                 if verbose:
                     print("Found a filesystem file '{}' in directory '{}' with same name and MD5 sum of an RPM packaged file!".format(fname, dirname))
                 packaged_files_fullpath.append(filesystem_fullpath)
+                file_matched = True
+                
+        if not file_matched:
+            packaged_files_notfound.append(fname)
     
     if verbose:
         print("In folder '{}' recursively found a total of {} packaged files".format(abs_filesystem_dir, len(packaged_files_fullpath)))
-    return packaged_files_fullpath
+    return packaged_files_fullpath, packaged_files_notfound
 
 def generate_dependency_list(outfile, rpm_file, list_of_files):
     """Write a text file (typically the extension is ".d") in a format compatible with GNU
@@ -242,10 +252,13 @@ def main():
         config['output_dep'] = os.path.join(os.getcwd(), os.path.join(input_rpm_dir, output_filename))
     
     pairs = get_md5sum_pairs(config['abs_input_rpm'])
-    matching_files = match_md5sum_pairs_with_fileystem(config['search_dir'], pairs)
+    matching_files, packaged_files_notfound = match_md5sum_pairs_with_fileystem(config['search_dir'], pairs)
     
-    if len(pairs) != len(matching_files):
-        print("Unable to find all {} packaged files inside '{}'".format(len(pairs), config['search_dir']))
+    if len(packaged_files_notfound)>0:
+        print("Unable to find {} packaged files inside '{}'.".format(len(packaged_files_notfound), config['search_dir']))
+        print("Files packaged and not found are:")
+        for fname in packaged_files_notfound:
+            print("   " + fname)
         if config['strict']:
             print("Aborting output generation (strict mode)")
             sys.exit(1)
