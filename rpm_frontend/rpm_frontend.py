@@ -31,8 +31,12 @@ def md5(fname):
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_md5.update(chunk)
     except OSError:
+        # this happens when a directory is encountered
         return ""
-        #print
+    except IOError:
+        print("Failed opening decompressed file '{}'\n".format(fname))
+        sys.exit(3)
+
     return hash_md5.hexdigest()
 
 def get_md5sum_pairs(rpm_filename):
@@ -42,8 +46,16 @@ def get_md5sum_pairs(rpm_filename):
     """
     
     tmpdir = tempfile.mkdtemp()
-    #print(tmpdir)
     
+    if not os.path.isfile(rpm_filename):
+        print("No such file '{}'".format(rpm_filename))
+        sys.exit(1)
+    
+    if verbose:
+        print("Decompressing the RPM in the temporary directory '{}'".format(tmpdir))
+    
+    # we need an absolute path since we change the CWD in the subprocess:
+    assert os.path.isabs(rpm_filename)
     try:
         rpm_retcode = subprocess.check_output(
             "cd " + tmpdir + " && rpm2cpio " + rpm_filename + " | cpio -idmvu",
@@ -52,7 +64,8 @@ def get_md5sum_pairs(rpm_filename):
     except subprocess.CalledProcessError as e:
         print("Failed decompressing {}: {}\n".format(rpm_filename, e.output))
         shutil.rmtree(tmpdir)
-        return [("","")]
+        #return [("","")]
+        sys.exit(3)
 
     # convert binary strings \n-separed -> string array
     rpm_files = [s.strip().decode("utf-8") for s in rpm_retcode.splitlines()]
@@ -61,7 +74,7 @@ def get_md5sum_pairs(rpm_filename):
     rpm_files = [s.lstrip(".") for s in rpm_files]
     
     # last line should contain the number of blocks decompressed by cpio
-    if re.match('[0-9]+ blocks', rpm_files[-1]):
+    if re.match('[0-9]+ block', rpm_files[-1]):
         rpm_files.pop()
     #print(rpm_files)
     
@@ -86,6 +99,10 @@ def match_md5sum_pairs_with_fileystem(abs_filesystem_dir, rpm_md5sum_pairs):
            [ fullpath_to_rpm_file, ... ]
     """
     
+    if not os.path.isdir(abs_filesystem_dir):
+        print("No such directory '{}'".format(abs_filesystem_dir))
+        sys.exit(1)
+        
     # traverse root directory, and list directories as dirs and files as files
     all_files_dict = {}
     for root, dirs, files in os.walk(abs_filesystem_dir):
@@ -186,8 +203,13 @@ def parse_command_line():
         print("Please provide --input option")
         sys.exit(os.EX_USAGE)
 
+    abs_input_rpm = input_rpm
+    if not os.path.isabs(input_rpm):
+        abs_input_rpm = os.path.join(os.getcwd(), input_rpm)
+        
     return {'spec_files': remaining_args,
             'input_rpm' : input_rpm,
+            'abs_input_rpm' : abs_input_rpm,
             'output_dep' : output_dep,
             'search_dir' : search_dir,
             'strict': strict }
@@ -205,17 +227,18 @@ def main():
         - generates the GNU make dependency list
     """
     
-    if not config['search_dir']:
+    if len(config['search_dir'])==0:
         # if not provided the search directory is the directory of input file
-        config['search_dir'] = os.path.dirname(config['input_rpm'])
+        config['search_dir'] = os.path.dirname(config['abs_input_rpm'])
+        print(config['search_dir'])
         
-    if not config['output_dep']:
+    if len(config['output_dep'])==0:
         # if not provided the output file lives in the same directory of input RPM
         # and is named like that RPM file just with .d extension
         input_rpm_dir = os.path.dirname(config['input_rpm'])
         config['output_dep'] = os.path.join(input_rpm_dir, os.path.splitext(config['input_rpm'])[0] + ".d")
     
-    pairs = get_md5sum_pairs(config['input_rpm'])
+    pairs = get_md5sum_pairs(config['abs_input_rpm'])
     matching_files = match_md5sum_pairs_with_fileystem(config['search_dir'], pairs)
     
     if len(pairs) != len(matching_files):
