@@ -237,7 +237,9 @@ def main():
         # if not provided the output file lives in the same directory of input RPM
         # and is named like that RPM file just with .d extension
         input_rpm_dir = os.path.dirname(config['input_rpm'])
-        config['output_dep'] = os.path.join(input_rpm_dir, os.path.splitext(config['input_rpm'])[0] + ".d")
+        input_rpm_filename = os.path.basename(config['input_rpm'])
+        output_filename = os.path.splitext(input_rpm_filename)[0] + ".d"
+        config['output_dep'] = os.path.join(os.getcwd(), os.path.join(input_rpm_dir, output_filename))
     
     pairs = get_md5sum_pairs(config['abs_input_rpm'])
     matching_files = match_md5sum_pairs_with_fileystem(config['search_dir'], pairs)
