@@ -102,3 +102,9 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# eclipse stuff
+.project
+.pydevproject
+tests/*.d
+tests/*.rpm
