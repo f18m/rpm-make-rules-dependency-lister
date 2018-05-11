@@ -101,7 +101,7 @@ def match_md5sum_pairs_with_fileystem(abs_filesystem_dir, rpm_md5sum_pairs):
        coming from an RPM packaged contents.
        Returns a list of filesystem full paths matching RPM contents and a list of
        files packaged in the RPM that could not be found:
-           [ fullpath_to_rpm_file, ... ]  [filename1_notfound, ... ]
+           [ fullpath_to_rpm_file, ... ]  [(filename1_notfound,md5sum_filename1) ... ]
     """
     
     if not os.path.isdir(abs_filesystem_dir):
@@ -139,7 +139,7 @@ def match_md5sum_pairs_with_fileystem(abs_filesystem_dir, rpm_md5sum_pairs):
                 file_matched = True
                 
         if not file_matched:
-            packaged_files_notfound.append(fname)
+            packaged_files_notfound.append( (fname,rpm_md5sum) )
     
     if verbose:
         print("In folder '{}' recursively found a total of {} packaged files".format(abs_filesystem_dir, len(packaged_files_fullpath)))
@@ -256,9 +256,9 @@ def main():
     
     if len(packaged_files_notfound)>0:
         print("Unable to find {} packaged files inside '{}'.".format(len(packaged_files_notfound), config['search_dir']))
-        print("Files packaged and not found are:")
-        for fname in packaged_files_notfound:
-            print("   " + fname)
+        print("Files packaged and not found (with their MD5 sum) are:")
+        for fname,fname_md5sum in packaged_files_notfound:
+            print("   {}    {}".format(fname,fname_md5sum))
         if config['strict']:
             print("Aborting output generation (strict mode)")
             sys.exit(1)
