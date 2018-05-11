@@ -16,7 +16,7 @@ Metapackage for example purposes
 %install
 rm -rf %{buildroot}/test-install
 mkdir -p %{buildroot}/test-install
-cp dummy-pkg-contents/test3.txt						%{buildroot}/test-install
+cp %{topdir}/dummy-pkg-contents/test3.txt						%{buildroot}/test-install
 
 %clean
 %pre

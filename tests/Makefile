@@ -7,6 +7,7 @@ RPM_RELEASE=mybuild
 RPM_ARCH=x86_64
 ALL_TARGET_RPMS := $(foreach spec, $(wildcard *.spec), $(subst .spec,-$(RPM_VERSION)-$(RPM_RELEASE).$(RPM_ARCH).rpm,$(spec)))
 DEP_FILES := $(ALL_TARGET_RPMS:%.rpm=%.d)
+THIS_DIRECTORY := $(shell readlink -f .)
 
 $(info Target RPMs are: $(ALL_TARGET_RPMS))
 $(info Dependency files are: $(DEP_FILES))
@@ -15,9 +16,10 @@ all: $(ALL_TARGET_RPMS)
 
 %-$(RPM_VERSION)-$(RPM_RELEASE).$(RPM_ARCH).rpm: %.spec
 	@echo "--- Building RPM from spec file $<"
-	rpmbuild --clean --build-in-place \
+	rpmbuild --clean \
 		--define='rpm_version $(RPM_VERSION)' \
 		--define='rpm_release $(RPM_RELEASE)' \
+		--define='topdir $(THIS_DIRECTORY)' \
 		-bb $<
 	@mv $$HOME/rpmbuild/RPMS/$(RPM_ARCH)/$@ .
 	@echo "--- Generating RPM dependency list"
