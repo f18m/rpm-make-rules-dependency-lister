@@ -25,6 +25,7 @@ with your RPM file.
 The 'tests' directory is used to test and showcase this utility. Get it with:
 
 ```
+pip3 install rpm-make-rules-dependency-lister   # install the utility to be able to run tests
 git clone https://github.com/f18m/rpm-make-rules-dependency-lister.git
 cd rpm-make-rules-dependency-lister/tests
 ls -l
