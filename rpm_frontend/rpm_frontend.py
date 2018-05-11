@@ -80,9 +80,10 @@ def get_md5sum_pairs(rpm_filename):
     
     retvalue = []
     for s in rpm_files:
-        md5_sum = md5(tmpdir + s)
-        if len(md5_sum)>0:
-            retvalue.append( (s,md5_sum) )
+        if os.path.isfile(os.path.join(tmpdir,s)):
+            md5_sum = md5(os.path.join(tmpdir,s))
+            if len(md5_sum)>0:
+                retvalue.append( (s,md5_sum) )
 
     # cleanup the temp dir before returning
     shutil.rmtree(tmpdir)
@@ -230,7 +231,7 @@ def main():
     if len(config['search_dir'])==0:
         # if not provided the search directory is the directory of input file
         config['search_dir'] = os.path.dirname(config['abs_input_rpm'])
-        print(config['search_dir'])
+        #print(config['search_dir'])
         
     if len(config['output_dep'])==0:
         # if not provided the output file lives in the same directory of input RPM
