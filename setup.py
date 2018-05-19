@@ -23,7 +23,7 @@ setup(
     name='rpm-make-rules-dependency-lister',
     packages=['rpm_frontend'],
     python_requires='>=3',
-    version='0.2',
+    version='0.3',
     description='Module for analyzing RPM dependencies and speedup RPM building process.',
     long_description=long_description,  # Optional
     long_description_content_type='text/markdown',  # Optional (see note above)
