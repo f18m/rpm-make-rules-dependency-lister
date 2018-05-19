@@ -34,10 +34,14 @@ touch_files_pkgA:
 touch_files_pkgB:
 	touch dummy-pkg-contents/test3.txt
 
-test_file_not_found:
+test_file_not_found: pkgA-1.2.3-mybuild.x86_64.rpm
 	# force searching in a dummy folder so that we can test how the utility behaves
 	mkdir -p /tmp/dummy
 	rpm_make_rules_dependency_lister -v --strict --input pkgA-1.2.3-mybuild.x86_64.rpm --search=/tmp/dummy
+
+test_multi_search_dirs: pkgA-1.2.3-mybuild.x86_64.rpm
+	# search 2 dirs: they should contain all files packaged in pkgA
+	rpm_make_rules_dependency_lister -v --strict --input pkgA-1.2.3-mybuild.x86_64.rpm --search=$(THIS_DIRECTORY)/dummy-pkg-contents/subdir1,$(THIS_DIRECTORY)/dummy-pkg-contents/subdir3
 
 clean:
 	rm -f *.rpm

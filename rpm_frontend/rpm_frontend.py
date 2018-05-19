@@ -9,8 +9,7 @@
 # Creation: May 2018
 #
 
-import getopt, sys, os, subprocess
-import tempfile, re, hashlib, shutil
+import getopt, sys, os, subprocess, hashlib
 
 ##
 ## GLOBALS
@@ -48,7 +47,7 @@ def sha256_checksum(filename, block_size=65536):
             sha256.update(block)
     return sha256.hexdigest()
 
-def get_sha256sum_pairs(rpm_filename):
+def get_sha256sum_pairs_from_rpm(rpm_filename):
     """Extracts sha256sums from an RPM file and creates
        a list of pairs
            (extracted filename + path, sha256sum of the extracted file)
@@ -93,7 +92,7 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
        coming from an RPM packaged contents.
        Returns a list of filesystem full paths matching RPM contents and a list of
        files packaged in the RPM that could not be found:
-           [ fullpath_to_rpm_file, ... ]  [(filename1_notfound,sha256sum_filename1) ... ]
+           {filename_only:set(fullpath_to_file1,...) ... }
     """
     
     if not os.path.isdir(abs_filesystem_dir):
@@ -104,7 +103,7 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
     # this allows us to later search each packaged file in O(1)
     all_files_dict = {}
     nfound = 0
-    for root, dirs, files in os.walk(abs_filesystem_dir):
+    for root, _, files in os.walk(abs_filesystem_dir):
         for filename_only in files:
             #print('---' + root + filename_only)
             nfound=nfound+1
@@ -114,61 +113,64 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
                 all_files_dict[filename_only]=set([root])
             
     if verbose:
-        print("In folder '{}' recursively found a total of {} files".format(abs_filesystem_dir, nfound))
+        print("** In folder '{}' recursively found a total of {} files".format(abs_filesystem_dir, nfound))
 
     # now try to match each RPM-packaged file with a file from previous hashmap
     # This takes O(n) where N=number of packaged files
     packaged_files_notfound = []
-    packaged_files_fullpath = []
+    packaged_files_fullpath = {}
+    nfound = 0
     for rpm_file,rpm_sha256sum in rpm_sha256sum_pairs:
         rpm_fname = os.path.basename(rpm_file)
         file_matches = []
+        packaged_files_fullpath[rpm_fname]=set()
         if rpm_fname in all_files_dict:
-            # this RPM file has been detected in the filesystem!
-            
+            # this RPM file has a file with the same name in the filesystem...
             dirname_set = all_files_dict[rpm_fname]
             for dirname in dirname_set:
                 filesystem_fullpath = os.path.join(dirname,rpm_fname)
                 filesystem_sha256sum = sha256_checksum(filesystem_fullpath)
                 if filesystem_sha256sum == rpm_sha256sum:
+                    # ...and with the same checksum!
                     if verbose:
-                        print("Found a filesystem file '{}' in directory '{}' with same name and SHA256 sum of an RPM packaged file!".format(rpm_fname, dirname))
+                        print("   Found a filesystem file '{}' in directory '{}' with same name and SHA256 sum of an RPM packaged file!".format(rpm_fname, dirname))
                     file_matches.append(filesystem_fullpath)
                 
         if len(file_matches) == 0:
             packaged_files_notfound.append( (rpm_fname,rpm_sha256sum) )
-        elif len(file_matches) == 1 or strict_mode == False:
-            packaged_files_fullpath.append( file_matches[0] )
+        elif len(file_matches) == 1:
+            packaged_files_fullpath[rpm_fname].add(file_matches[0])
+            nfound=nfound+1
         else:
-            assert len(file_matches)>1 and strict_mode
-            
-            # Emit a warning but keep going
-            print("WARNING: found an RPM packaged file '{}' that has the same name and SHA256 sum of multiple files found in the filesystem:".format(rpm_fname))
-            for filesystem_fullpath in file_matches:
-                print("   {}    {}".format(filesystem_fullpath,rpm_sha256sum))
-                packaged_files_fullpath.append( filesystem_fullpath )
+            assert len(file_matches)>1
+            if verbose:
+                # Emit a warning but keep going
+                print("   WARNING: found an RPM packaged file '{}' that has the same name and SHA256 sum of multiple files found in the filesystem:".format(rpm_fname))
+                for filesystem_fullpath in file_matches:
+                    print("      {}    {}".format(filesystem_fullpath,rpm_sha256sum))
+                    packaged_files_fullpath[rpm_fname].add(filesystem_fullpath)
+                    nfound=nfound+1
+                    
+            #if strict_mode:
             #print("This breaks 1:1 relationship. Aborting (strict mode).")
             #sys.exit(4)
-
-    if len(packaged_files_notfound)>0:
-        print("Unable to find {} packaged files inside '{}'.".format(len(packaged_files_notfound), abs_filesystem_dir))
-        print("Files packaged and not found (with their SHA256 sum) are:")
-        for fname,fname_sha256sum in packaged_files_notfound:
-            print("   {}    {}".format(fname,fname_sha256sum))
-        if strict_mode:
-            print("Aborting output generation (strict mode)")
-            sys.exit(3)
             
     if verbose:
-        print("In folder '{}' recursively found a total of {} packaged files".format(abs_filesystem_dir, len(packaged_files_fullpath)))
-    return packaged_files_fullpath, packaged_files_notfound
+        print("   In folder '{}' recursively found a total of {} packaged files".format(abs_filesystem_dir, nfound))
+    #return packaged_files_fullpath, packaged_files_notfound
+    return packaged_files_fullpath
 
-def generate_dependency_list(outfile, rpm_file, list_of_files):
+def generate_dependency_list(outfile, rpm_file, dict_matching_files):
     """Write a text file (typically the extension is ".d") in a format compatible with GNU
        make. The output text file, if included inside a Makefile, will instruct GNU make 
        about the dependencies of an RPM, so that such RPM can be rebuilt only when one of
        the dependencies is updated (rather than unconditionally).
     """
+    #print(dict_matching_files)
+    list_of_files = []
+    for _,set_of_fullpaths in dict_matching_files.items():
+        for fullpath in set_of_fullpaths:
+            list_of_files.append(fullpath)
     text = os.path.basename(rpm_file) + ": \\\n\t" + " \\\n\t".join(list_of_files) + "\n"
     try:
         with open(outfile, "w") as f:
@@ -179,10 +181,28 @@ def generate_dependency_list(outfile, rpm_file, list_of_files):
     
     print("Successfully generated dependency list for '{}' in file '{}'".format(rpm_file, outfile))
 
+def merge_two_dicts(x, y):
+    #z = x.copy()   # start with x's keys and values
+    #z.update(y)    # modifies z with y's keys and values & returns None
+    #z = {**x, **y}
+    #print(x)
+    #print(y)
+    
+    z = {}
+    for fname,set_fullpaths in x.items():
+        z[fname]=set_fullpaths
+    for fname,set_fullpaths in y.items():
+        if fname in z:
+            for fullpath in set_fullpaths:
+                z[fname].add(fullpath)
+        else:
+            z[fname]=set_fullpaths
+    return z
+
 def usage():
     """Provides commandline usage
     """
-    print('Usage: %s [--help] [--strict] [--verbose] --input=somefile.rpm [--output=somefile.d] [--search=somefolder]' % sys.argv[0])
+    print('Usage: %s [--help] [--strict] [--verbose] --input=somefile.rpm [--output=somefile.d] [--search=somefolder1,somefolder2,...]' % sys.argv[0])
     print('Required parameters:')
     print('  [-i] --input=<file.rpm>     The RPM file to analyze.')
     print('Optional parameters:')
@@ -193,7 +213,8 @@ def usage():
     print('  [-o] --output=<file.d>      The output file where the list of RPM dependencies will be written;')
     print('                              if not provided the dependency file is written in the same folder of ')
     print('                              input RPM with .d extension in place of .rpm extension.')
-    print('  [-d] --search=<directory>   The directory where RPM packaged files will be searched in (recursively);')
+    print('  [-d] --search=<dir list>    The directories where RPM packaged files will be searched in (recursively);')
+    print('                              this option accepts a comma-separated list of directories;')
     print('                              if not provided the files will be searched in the same folder of input RPM.')
     sys.exit(0)
     
@@ -210,7 +231,7 @@ def parse_command_line():
     global verbose
     input_rpm = ""
     output_dep = ""
-    search_dir = ""
+    search_dirs = ""
     strict = False
     for o, a in opts:
         if o in ("-h", "--help"):
@@ -224,7 +245,7 @@ def parse_command_line():
         elif o in ("-o", "--output"):
             output_dep = a
         elif o in ("-d", "--search"):
-            search_dir = a
+            search_dirs = a
         else:
             assert False, "unhandled option " + o + a
 
@@ -240,7 +261,7 @@ def parse_command_line():
             'input_rpm' : input_rpm,
             'abs_input_rpm' : abs_input_rpm,
             'output_dep' : output_dep,
-            'search_dir' : search_dir,
+            'search_dirs' : search_dirs,
             'strict': strict }
 
 ##
@@ -255,11 +276,14 @@ def main():
         - matches those files with the folder where the RPM resides
         - generates the GNU make dependency list
     """
-    
-    if len(config['search_dir'])==0:
+    search_dirs = config['search_dirs']
+    if len(search_dirs)==0:
         # if not provided the search directory is the directory of input file
-        config['search_dir'] = os.path.dirname(config['abs_input_rpm'])
-        #print(config['search_dir'])
+        search_dirs = [ os.path.dirname(config['abs_input_rpm']) ]
+        if verbose:
+            print("No search directory provided, using current directory '{}'".format(os.path.dirname(config['abs_input_rpm'])))
+    else:
+        search_dirs = search_dirs.split(',')
         
     if len(config['output_dep'])==0:
         # if not provided the output file lives in the same directory of input RPM
@@ -269,10 +293,36 @@ def main():
         output_filename = os.path.splitext(input_rpm_filename)[0] + ".d"
         config['output_dep'] = os.path.join(os.getcwd(), os.path.join(input_rpm_dir, output_filename))
     
-    pairs = get_sha256sum_pairs(config['abs_input_rpm'])
-    matching_files, packaged_files_notfound = match_sha256sum_pairs_with_fileystem(config['search_dir'], pairs, config['strict'])
+    rpm_file_checksums = get_sha256sum_pairs_from_rpm(config['abs_input_rpm'])
     
-    generate_dependency_list(config['output_dep'], config['input_rpm'], matching_files)
+    dict_matching_files = {}
+    for search_dir in search_dirs:
+        a = match_sha256sum_pairs_with_fileystem(search_dir, rpm_file_checksums, config['strict'])
+        dict_matching_files = merge_two_dicts(dict_matching_files,a)
+        #packaged_files_notfound = packaged_files_notfound + b
+        
+    packaged_files_notfound = []
+    for rpm_file,_ in rpm_file_checksums:
+        rpm_fname = os.path.basename(rpm_file)
+        if rpm_fname not in dict_matching_files:
+            packaged_files_notfound.append(rpm_fname)
+    
+    # report all files not found all together at the end:
+    if len(packaged_files_notfound)>0:
+        if verbose or config['strict']:
+            dirs = ",".join(search_dirs)
+            print("Unable to find {} packaged files inside provided search folders {}.".format(len(packaged_files_notfound), dirs))
+            print("Files packaged and not found (with their SHA256 sum) are:")
+            for fname,fname_sha256sum in packaged_files_notfound:
+                print("   {}    {}".format(fname,fname_sha256sum))
+        if config['strict']:
+            print("Aborting output generation (strict mode)")
+            sys.exit(3)
+            
+    if verbose:
+        print("Found a total of {} packaged files across all search folders".format(len(dict_matching_files.keys())))
+            
+    generate_dependency_list(config['output_dep'], config['input_rpm'], dict_matching_files)
 
 if __name__ == '__main__':
     main()
