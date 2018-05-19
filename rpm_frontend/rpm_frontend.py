@@ -88,7 +88,7 @@ def get_sha256sum_pairs(rpm_filename):
 
     return retvalue
 
-def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs):
+def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs, strict_mode):
     """Walks given filesystem directory and searches for files matching those
        coming from an RPM packaged contents.
        Returns a list of filesystem full paths matching RPM contents and a list of
@@ -100,39 +100,63 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
         print("No such directory '{}'".format(abs_filesystem_dir))
         sys.exit(1)
         
-    # traverse root directory, and list directories as dirs and files as files
+    # traverse root directory, and create an hashmap of the found files
+    # this allows us to later search each packaged file in O(1)
     all_files_dict = {}
+    nfound = 0
     for root, dirs, files in os.walk(abs_filesystem_dir):
-        #path = root.split(os.sep)
-        #print((len(path) - 1) * '---', root, md5(root))
         for filename_only in files:
-            #fullpath = os.path.join(root,file)
-            #print(fullpath)
-            #print(len(path) * '---', fullpath, md5(fullpath))
-            all_files_dict[filename_only]=root
+            #print('---' + root + filename_only)
+            nfound=nfound+1
+            if filename_only in all_files_dict:
+                all_files_dict[filename_only].add(root)
+            else:
+                all_files_dict[filename_only]=set([root])
             
     if verbose:
-        print("In folder '{}' recursively found a total of {} files".format(abs_filesystem_dir, len(all_files_dict.keys())))
-    
+        print("In folder '{}' recursively found a total of {} files".format(abs_filesystem_dir, nfound))
+
+    # now try to match each RPM-packaged file with a file from previous hashmap
+    # This takes O(n) where N=number of packaged files
     packaged_files_notfound = []
     packaged_files_fullpath = []
     for rpm_file,rpm_sha256sum in rpm_sha256sum_pairs:
-        fname = os.path.basename(rpm_file)
-
-        file_matched = False
-        if fname in all_files_dict:
-            dirname = all_files_dict[fname]
-            filesystem_fullpath = os.path.join(dirname,fname)
-            filesystem_sha256sum = sha256_checksum(filesystem_fullpath)
-            if filesystem_sha256sum == rpm_sha256sum:
-                if verbose:
-                    print("Found a filesystem file '{}' in directory '{}' with same name and SHA256 sum of an RPM packaged file!".format(fname, dirname))
-                packaged_files_fullpath.append(filesystem_fullpath)
-                file_matched = True
+        rpm_fname = os.path.basename(rpm_file)
+        file_matches = []
+        if rpm_fname in all_files_dict:
+            # this RPM file has been detected in the filesystem!
+            
+            dirname_set = all_files_dict[rpm_fname]
+            for dirname in dirname_set:
+                filesystem_fullpath = os.path.join(dirname,rpm_fname)
+                filesystem_sha256sum = sha256_checksum(filesystem_fullpath)
+                if filesystem_sha256sum == rpm_sha256sum:
+                    if verbose:
+                        print("Found a filesystem file '{}' in directory '{}' with same name and SHA256 sum of an RPM packaged file!".format(rpm_fname, dirname))
+                    file_matches.append(filesystem_fullpath)
                 
-        if not file_matched:
-            packaged_files_notfound.append( (fname,rpm_sha256sum) )
+        if len(file_matches) == 0:
+            packaged_files_notfound.append( (rpm_fname,rpm_sha256sum) )
+        elif len(file_matches) == 1 or strict_mode == False:
+            packaged_files_fullpath.append(filesystem_fullpath)
+        else:
+            assert len(file_matches)>1
+            assert strict_mode
+            print("Found an RPM packaged file '{}' that has the same name and SHA256 sum of multiple files found in the filesystem:")
+            for fname in file_matches:
+                print("   {}    {}".format(fname,rpm_sha256sum))
+            print("This breaks 1:1 relationship. Aborting (strict mode).")
+            sys.exit(4)
     
+    if len(packaged_files_notfound)>0:
+        print("Unable to find {} packaged files inside '{}'.".format(len(packaged_files_notfound), abs_filesystem_dir))
+        print("Files packaged and not found (with their SHA256 sum) are:")
+        for fname,fname_sha256sum in packaged_files_notfound:
+            print("   {}    {}".format(fname,fname_sha256sum))
+        if strict_mode:
+            print("Aborting output generation (strict mode)")
+            sys.exit(3)
+            
     if verbose:
         print("In folder '{}' recursively found a total of {} packaged files".format(abs_filesystem_dir, len(packaged_files_fullpath)))
     return packaged_files_fullpath, packaged_files_notfound
@@ -244,16 +268,7 @@ def main():
         config['output_dep'] = os.path.join(os.getcwd(), os.path.join(input_rpm_dir, output_filename))
     
     pairs = get_sha256sum_pairs(config['abs_input_rpm'])
-    matching_files, packaged_files_notfound = match_sha256sum_pairs_with_fileystem(config['search_dir'], pairs)
-    
-    if len(packaged_files_notfound)>0:
-        print("Unable to find {} packaged files inside '{}'.".format(len(packaged_files_notfound), config['search_dir']))
-        print("Files packaged and not found (with their SHA256 sum) are:")
-        for fname,fname_sha256sum in packaged_files_notfound:
-            print("   {}    {}".format(fname,fname_sha256sum))
-        if config['strict']:
-            print("Aborting output generation (strict mode)")
-            sys.exit(1)
+    matching_files, packaged_files_notfound = match_sha256sum_pairs_with_fileystem(config['search_dir'], pairs, config['strict'])
     
     generate_dependency_list(config['output_dep'], config['input_rpm'], matching_files)
 
