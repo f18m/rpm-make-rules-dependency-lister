@@ -18,20 +18,26 @@ dummy_pkg_contents:
 	cd dummy-pkg-contents && make
 
 %-$(RPM_VERSION)-$(RPM_RELEASE).$(RPM_ARCH).rpm: %.spec
+	@echo "-----------------------------------------------------------------"
 	@echo "--- Building RPM from spec file $<"
+	@echo "-----------------------------------------------------------------"
 	rpmbuild --clean \
 		--define='rpm_version $(RPM_VERSION)' \
 		--define='rpm_release $(RPM_RELEASE)' \
 		--define='topdir $(THIS_DIRECTORY)' \
 		-bb $<
 	@mv $$HOME/rpmbuild/RPMS/$(RPM_ARCH)/$@ .
-	@echo "--- Generating RPM dependency list"
+	@echo "-----------------------------------------------------------------"
+	@echo "--- Generating RPM dependency list for spec file $<"
+	@echo "-----------------------------------------------------------------"
 	rpm_make_rules_dependency_lister -v --strict --input $@
 
 touch_files_pkgA:
+# this will force repackaging of pkgA if dependency files have been generated!
 	touch dummy-pkg-contents/subdir1/subdir2/test1.txt
 
 touch_files_pkgB:
+	# this will force repackaging of pkgB if dependency files have been generated!
 	touch dummy-pkg-contents/test3.txt
 
 test_file_not_found: pkgA-1.2.3-mybuild.x86_64.rpm
