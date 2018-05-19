@@ -174,7 +174,8 @@ def generate_dependency_list(outfile, rpm_file, dict_matching_files):
     for _,set_of_fullpaths in dict_matching_files.items():
         for fullpath in set_of_fullpaths:
             list_of_files.append(fullpath)
-    text = os.path.basename(rpm_file) + ": \\\n\t" + " \\\n\t".join(list_of_files) + "\n"
+            
+    text = rpm_file + ": \\\n\t" + " \\\n\t".join(sorted(list_of_files)) + "\n"
     try:
         with open(outfile, "w") as f:
             f.write(text)
