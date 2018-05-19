@@ -12,7 +12,10 @@ THIS_DIRECTORY := $(shell readlink -f .)
 $(info Target RPMs are: $(ALL_TARGET_RPMS))
 $(info Dependency files are: $(DEP_FILES))
 
-all: $(ALL_TARGET_RPMS)
+all: dummy_pkg_contents $(ALL_TARGET_RPMS)
+
+dummy_pkg_contents:
+	cd dummy-pkg-contents && make
 
 %-$(RPM_VERSION)-$(RPM_RELEASE).$(RPM_ARCH).rpm: %.spec
 	@echo "--- Building RPM from spec file $<"

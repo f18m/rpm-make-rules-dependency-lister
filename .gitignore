@@ -107,3 +107,5 @@ venv.bak/
 .pydevproject
 tests/*.d
 tests/*.rpm
+tests/dummy-pkg-contents/testbinary
+

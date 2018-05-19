@@ -22,7 +22,7 @@ verbose = False
 ## FUNCTIONS
 ##
 
-def md5(fname):
+def md5_checksum(fname):
     """Computes the MD5 hash of a file on disk
     """
     hash_md5 = hashlib.md5()
@@ -39,69 +39,61 @@ def md5(fname):
 
     return hash_md5.hexdigest()
 
-def get_md5sum_pairs(rpm_filename):
-    """Read .rpm files, decompresses them in a temporary folder and creates
-       a list of pairs
-           (extracted filename + path, MD5sum of the extracted file)
+def sha256_checksum(filename, block_size=65536):
+    """Computes the SHA256 hash of a file on disk
     """
-    
-    tmpdir = tempfile.mkdtemp()
+    sha256 = hashlib.sha256()
+    with open(filename, 'rb') as f:
+        for block in iter(lambda: f.read(block_size), b''):
+            sha256.update(block)
+    return sha256.hexdigest()
+
+def get_sha256sum_pairs(rpm_filename):
+    """Extracts sha256sums from an RPM file and creates
+       a list of pairs
+           (extracted filename + path, sha256sum of the extracted file)
+    """
     
     if not os.path.isfile(rpm_filename):
         print("No such file '{}'".format(rpm_filename))
         sys.exit(1)
     
-    if verbose:
-        print("Decompressing the RPM in the temporary directory '{}'".format(tmpdir))
-    
     # we need an absolute path since we change the CWD in the subprocess:
     assert os.path.isabs(rpm_filename)
     try:
-        rpm_retcode = subprocess.check_output(
-            "cd " + tmpdir + " && rpm2cpio " + rpm_filename + " | cpio -idmvu",
+        # NOTE: regardless the query tag name "FILEMD5S", what is returned is actually a SHA256!
+        rpm_sha256sums = subprocess.check_output(
+            "rpm -qp --qf '[%{filenames},%{FILEMD5S}\n]' " + rpm_filename,
              stderr=subprocess.STDOUT,
              shell=True)
     except subprocess.CalledProcessError as e:
         print("Failed decompressing {}: {}\n".format(rpm_filename, e.output))
-        shutil.rmtree(tmpdir)
-        #return [("","")]
         sys.exit(3)
 
     # convert binary strings \n-separed -> string array
-    rpm_files = [s.strip().decode("utf-8") for s in rpm_retcode.splitlines()]
+    rpm_files_comma_checksums = [s.strip().decode("utf-8") for s in rpm_sha256sums.splitlines()]
     
-    # cpio adds the prefix "." to all decompressed files: remove it:
-    rpm_files = [s.lstrip(".") for s in rpm_files]
-    
-    # last line should contain the number of blocks decompressed by cpio
-    if re.match('[0-9]+ block', rpm_files[-1]):
-        rpm_files.pop()
-    #print(rpm_files)
-    
+    # generate output
     retvalue = []
-    for s in rpm_files:
-        assert os.path.isabs(s)
-        #extracted_fname = os.path.join(tmpdir,s)   # this does not work!
-        extracted_fname = tmpdir+s   # this does not work!
-        if os.path.isfile(extracted_fname):
-            md5_sum = md5(extracted_fname)
-            if len(md5_sum)>0:
-                retvalue.append( (s,md5_sum) )
-
-    # cleanup the temp dir before returning
-    shutil.rmtree(tmpdir)
+    for s in rpm_files_comma_checksums:
+        filewithpath,sha256sum = s.split(',')
+        if len(sha256sum)==0:
+            continue    # if no checksum is present, this is a directory, skip it
+        
+        assert os.path.isabs(filewithpath)
+        retvalue.append( (filewithpath,sha256sum) )
 
     if verbose:
         print("The RPM file '{}' packages a total of {} files".format(rpm_filename, len(retvalue)))
 
     return retvalue
 
-def match_md5sum_pairs_with_fileystem(abs_filesystem_dir, rpm_md5sum_pairs):
+def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs):
     """Walks given filesystem directory and searches for files matching those
        coming from an RPM packaged contents.
        Returns a list of filesystem full paths matching RPM contents and a list of
        files packaged in the RPM that could not be found:
-           [ fullpath_to_rpm_file, ... ]  [(filename1_notfound,md5sum_filename1) ... ]
+           [ fullpath_to_rpm_file, ... ]  [(filename1_notfound,sha256sum_filename1) ... ]
     """
     
     if not os.path.isdir(abs_filesystem_dir):
@@ -124,22 +116,22 @@ def match_md5sum_pairs_with_fileystem(abs_filesystem_dir, rpm_md5sum_pairs):
     
     packaged_files_notfound = []
     packaged_files_fullpath = []
-    for rpm_file,rpm_md5sum in rpm_md5sum_pairs:
+    for rpm_file,rpm_sha256sum in rpm_sha256sum_pairs:
         fname = os.path.basename(rpm_file)
 
         file_matched = False
         if fname in all_files_dict:
             dirname = all_files_dict[fname]
             filesystem_fullpath = os.path.join(dirname,fname)
-            filesystem_md5sum = md5(filesystem_fullpath)
-            if filesystem_md5sum == rpm_md5sum:
+            filesystem_sha256sum = sha256_checksum(filesystem_fullpath)
+            if filesystem_sha256sum == rpm_sha256sum:
                 if verbose:
-                    print("Found a filesystem file '{}' in directory '{}' with same name and MD5 sum of an RPM packaged file!".format(fname, dirname))
+                    print("Found a filesystem file '{}' in directory '{}' with same name and SHA256 sum of an RPM packaged file!".format(fname, dirname))
                 packaged_files_fullpath.append(filesystem_fullpath)
                 file_matched = True
                 
         if not file_matched:
-            packaged_files_notfound.append( (fname,rpm_md5sum) )
+            packaged_files_notfound.append( (fname,rpm_sha256sum) )
     
     if verbose:
         print("In folder '{}' recursively found a total of {} packaged files".format(abs_filesystem_dir, len(packaged_files_fullpath)))
@@ -233,7 +225,7 @@ def main():
     config = parse_command_line()
     
     """Put all previous utility function in chain:
-        - extracts RPM and computes MD5 sums of contained files
+        - extracts RPM and computes SHA256 sums of contained files
         - matches those files with the folder where the RPM resides
         - generates the GNU make dependency list
     """
@@ -251,14 +243,14 @@ def main():
         output_filename = os.path.splitext(input_rpm_filename)[0] + ".d"
         config['output_dep'] = os.path.join(os.getcwd(), os.path.join(input_rpm_dir, output_filename))
     
-    pairs = get_md5sum_pairs(config['abs_input_rpm'])
-    matching_files, packaged_files_notfound = match_md5sum_pairs_with_fileystem(config['search_dir'], pairs)
+    pairs = get_sha256sum_pairs(config['abs_input_rpm'])
+    matching_files, packaged_files_notfound = match_sha256sum_pairs_with_fileystem(config['search_dir'], pairs)
     
     if len(packaged_files_notfound)>0:
         print("Unable to find {} packaged files inside '{}'.".format(len(packaged_files_notfound), config['search_dir']))
-        print("Files packaged and not found (with their MD5 sum) are:")
-        for fname,fname_md5sum in packaged_files_notfound:
-            print("   {}    {}".format(fname,fname_md5sum))
+        print("Files packaged and not found (with their SHA256 sum) are:")
+        for fname,fname_sha256sum in packaged_files_notfound:
+            print("   {}    {}".format(fname,fname_sha256sum))
         if config['strict']:
             print("Aborting output generation (strict mode)")
             sys.exit(1)

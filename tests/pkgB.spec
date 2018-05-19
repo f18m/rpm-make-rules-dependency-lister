@@ -8,7 +8,8 @@ Release: %{rpm_release}
 License: GPL
 Vendor: None
 
-Requires: systemPkgB
+# Typically here you would have a list of other RPM dependencies:
+#Requires: systemPkgB
 
 %description
 Metapackage for example purposes
@@ -17,6 +18,7 @@ Metapackage for example purposes
 rm -rf %{buildroot}/test-install
 mkdir -p %{buildroot}/test-install
 cp %{topdir}/dummy-pkg-contents/test3.txt						%{buildroot}/test-install
+cp %{topdir}/dummy-pkg-contents/testbinary						%{buildroot}/test-install
 
 %clean
 %pre
@@ -26,3 +28,4 @@ cp %{topdir}/dummy-pkg-contents/test3.txt						%{buildroot}/test-install
 %postun
 %files
 /test-install/*.txt
+%attr(755,-,-) /test-install/testbinary
