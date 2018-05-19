@@ -143,13 +143,16 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
             nfound=nfound+1
         else:
             assert len(file_matches)>1
+            # add all the multiple matches
+            for filesystem_fullpath in file_matches:
+                packaged_files_fullpath[rpm_fname].add(filesystem_fullpath)
+                nfound=nfound+1
+                
             if verbose:
                 # Emit a warning but keep going
                 print("   WARNING: found an RPM packaged file '{}' that has the same name and SHA256 sum of multiple files found in the filesystem:".format(rpm_fname))
                 for filesystem_fullpath in file_matches:
                     print("      {}    {}".format(filesystem_fullpath,rpm_sha256sum))
-                    packaged_files_fullpath[rpm_fname].add(filesystem_fullpath)
-                    nfound=nfound+1
                     
             #if strict_mode:
             #print("This breaks 1:1 relationship. Aborting (strict mode).")
