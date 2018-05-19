@@ -5,6 +5,9 @@ dist:
 clean:
 	rm -rf build dist *.egg-info
 
+tests:
+	cd tests && make
+
 test_install:
 	-sudo pip3 uninstall rpm-make-rules-dependency-lister
 	sudo pip3 install dist/*.whl
@@ -16,4 +19,4 @@ test_install:
 upload:
 	twine upload dist/*
 
-.PHONY: dist clean test_install upload
+.PHONY: dist clean tests test_install upload

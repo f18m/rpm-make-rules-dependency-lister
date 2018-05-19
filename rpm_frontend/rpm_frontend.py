@@ -138,16 +138,18 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
         if len(file_matches) == 0:
             packaged_files_notfound.append( (rpm_fname,rpm_sha256sum) )
         elif len(file_matches) == 1 or strict_mode == False:
-            packaged_files_fullpath.append(filesystem_fullpath)
+            packaged_files_fullpath.append( file_matches[0] )
         else:
-            assert len(file_matches)>1
-            assert strict_mode
-            print("Found an RPM packaged file '{}' that has the same name and SHA256 sum of multiple files found in the filesystem:")
-            for fname in file_matches:
-                print("   {}    {}".format(fname,rpm_sha256sum))
-            print("This breaks 1:1 relationship. Aborting (strict mode).")
-            sys.exit(4)
-    
+            assert len(file_matches)>1 and strict_mode
+            
+            # Emit a warning but keep going
+            print("WARNING: found an RPM packaged file '{}' that has the same name and SHA256 sum of multiple files found in the filesystem:".format(rpm_fname))
+            for filesystem_fullpath in file_matches:
+                print("   {}    {}".format(filesystem_fullpath,rpm_sha256sum))
+                packaged_files_fullpath.append( filesystem_fullpath )
+            #print("This breaks 1:1 relationship. Aborting (strict mode).")
+            #sys.exit(4)
+
     if len(packaged_files_notfound)>0:
         print("Unable to find {} packaged files inside '{}'.".format(len(packaged_files_notfound), abs_filesystem_dir))
         print("Files packaged and not found (with their SHA256 sum) are:")
