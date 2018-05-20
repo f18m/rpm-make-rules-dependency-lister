@@ -37,7 +37,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'rpm_make_rules_dependency_lister = rpm_frontend.rpm_frontend:main',
+            'rpm_make_rules_dependency_lister = rpm_make_rules_dependency_lister.rpm_frontend:main',
         ]
     }
 )

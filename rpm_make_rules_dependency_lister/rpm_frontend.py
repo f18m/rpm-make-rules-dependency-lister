@@ -183,7 +183,7 @@ def generate_dependency_list(outfile, rpm_file, dict_matching_files):
         print("Failed writing to output file '{}'. Aborting".format(outfile))
         sys.exit(2)
     
-    print("Successfully generated dependency list for '{}' in file '{}'".format(rpm_file, outfile))
+    print("Successfully generated dependency list for '{}' in file '{}' listing {} dependencies".format(rpm_file, outfile, len(list_of_files)))
 
 def merge_two_dicts(x, y):
     #z = x.copy()   # start with x's keys and values
@@ -304,19 +304,21 @@ def main():
         a = match_sha256sum_pairs_with_fileystem(search_dir, rpm_file_checksums, config['strict'])
         dict_matching_files = merge_two_dicts(dict_matching_files,a)
         #packaged_files_notfound = packaged_files_notfound + b
-        
+    
+    nfound = 0
     packaged_files_notfound = []
-    for rpm_file,_ in rpm_file_checksums:
+    for rpm_file,rpm_sha256sum in rpm_file_checksums:
         rpm_fname = os.path.basename(rpm_file)
-        if rpm_fname not in dict_matching_files:
-            packaged_files_notfound.append(rpm_fname)
+        if rpm_fname not in dict_matching_files or len(dict_matching_files[rpm_fname])==0:
+            packaged_files_notfound.append( (rpm_fname,rpm_sha256sum) )
+        else:
+            nfound = nfound+1
     
     # report all files not found all together at the end:
     if len(packaged_files_notfound)>0:
         if verbose or config['strict']:
             dirs = ",".join(search_dirs)
-            print("Unable to find {} packaged files inside provided search folders {}.".format(len(packaged_files_notfound), dirs))
-            print("Files packaged and not found (with their SHA256 sum) are:")
+            print("Unable to find {} packaged files inside provided search folders {}. Files packaged and not found (with their SHA256 sum) are:".format(len(packaged_files_notfound), dirs))
             for fname,fname_sha256sum in packaged_files_notfound:
                 print("   {}    {}".format(fname,fname_sha256sum))
         if config['strict']:
@@ -324,7 +326,7 @@ def main():
             sys.exit(3)
             
     if verbose:
-        print("Found a total of {} packaged files across all search folders".format(len(dict_matching_files.keys())))
+        print("Found a total of {} packaged files across all search folders".format(nfound))
             
     generate_dependency_list(config['output_dep'], config['input_rpm'], dict_matching_files)
 
