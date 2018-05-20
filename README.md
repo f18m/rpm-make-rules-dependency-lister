@@ -3,7 +3,11 @@
 This is a simple Python3 script that reads an .rpm file and writes an output text file 
 that, if included inside a Makefile, will instruct GNU make about the dependencies 
 of the .rpm, so that such RPM can be rebuilt only when one of the dependencies is updated 
-(rather than unconditionally) thus speeding up the time required by "make".
+(rather than unconditionally) thus speeding up the time required by packaging.
+
+This tool is agnostic to the RPM contents, to the programming language(s) used in your project,
+and to the build system you used to generate binaries, etc.
+The format of the output file generated is compatible with GNU make syntax though.
 
 ## How to install
 
@@ -60,20 +64,37 @@ make                     # now the RPM A is rebuilt!
 Now if your project builds several RPMs, this utility can greatly reduce the time it takes to
 regenerate them!
 
-## How to add to your Makefile
+## How to add to your GNU make Makefile
 
 This utility can be chained in your GNU make process by adding just 3 lines to your Makefile:
 
 ```
-DEP_FILES := $($(wildcard *.spec):%.spec=%.d)        # first line to add
+DEP_FILES := $(foreach spec, $(wildcard *.spec), deps/$(spec).d)        # first line to add
 
 %-$(RPM_VERSION)-$(RPM_RELEASE).$(RPM_ARCH).rpm: %.spec
 	... your rpmbuild call...
-	rpm_make_rules_dependency_lister --input $@      # second line to add
+	rpm_make_rules_dependency_lister --input $@  --output=deps/$<.d --search=<SRCDIR>    # second line to add
 ```
 
-Then at the end of your Makefile:
+Where the "SRCDIR" is the directory where you built files to package, that get copied inside the RPM build root.
+Finally, at the end of your Makefile add:
 
 ```
 -include $(DEP_FILES)                               # third line to add
+```
+
+That's it!
+
+## Caveats
+
+The rpmbuild utility ships by default with a number of post-install scripts executed on the
+packaged files. Some of these scripts will alter the packaged files and may change the SHA256 checksum
+used internally by rpm-make-rules-dependency-lister to build the association map 
+"packaged file <-> filesystem dependency".
+
+This behavior happens often with binary ELF files. To avoid such behaviour from rpmbuild you can add
+the following line to your .spec file:
+
+```
+%global __os_install_post %{nil}
 ```
