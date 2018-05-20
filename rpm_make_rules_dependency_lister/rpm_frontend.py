@@ -217,6 +217,9 @@ def usage():
     print('  [-o] --output=<file.d>      The output file where the list of RPM dependencies will be written;')
     print('                              if not provided the dependency file is written in the same folder of ')
     print('                              input RPM with .d extension in place of .rpm extension.')
+    print('  [-t] --strip-dirname        In the output dependency file strip the dirname of the provided RPM;')
+    print('                              produces a change in output only if an absolute/relative path is provided')
+    print('                              to --output option (e.g., if --output=a/b/c/myrpm.rpm is given).')
     print('  [-d] --search=<dir list>    The directories where RPM packaged files will be searched in (recursively);')
     print('                              this option accepts a comma-separated list of directories;')
     print('                              if not provided the files will be searched in the same folder of input RPM.')
@@ -226,7 +229,7 @@ def parse_command_line():
     """Parses the command line
     """
     try:
-        opts, remaining_args = getopt.getopt(sys.argv[1:], "hvsios", ["help", "verbose", "strict", "input=", "output=", "search="])
+        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvsotd", ["input=", "help", "verbose", "strict", "output=", "strip-dirname", "search="])
     except getopt.GetoptError as err:
         # print help information and exit:
         print(str(err))  # will print something like "option -a not recognized"
@@ -237,17 +240,20 @@ def parse_command_line():
     output_dep = ""
     search_dirs = ""
     strict = False
+    strip_dirname = False
     for o, a in opts:
-        if o in ("-h", "--help"):
+        if o in ("-i", "--input"):
+            input_rpm = a
+        elif o in ("-h", "--help"):
             usage()
         elif o in ("-v", "--verbose"):
             verbose = True
         elif o in ("-s", "--strict"):
             strict = True
-        elif o in ("-i", "--input"):
-            input_rpm = a
         elif o in ("-o", "--output"):
             output_dep = a
+        elif o in ("-t", "--strip-dirname"):
+            strip_dirname = True
         elif o in ("-d", "--search"):
             search_dirs = a
         else:
@@ -266,7 +272,8 @@ def parse_command_line():
             'abs_input_rpm' : abs_input_rpm,
             'output_dep' : output_dep,
             'search_dirs' : search_dirs,
-            'strict': strict }
+            'strict': strict,
+            'strip_dirname': strip_dirname }
 
 ##
 ## MAIN
@@ -328,7 +335,10 @@ def main():
     if verbose:
         print("Found a total of {} packaged files across all search folders".format(nfound))
             
-    generate_dependency_list(config['output_dep'], config['input_rpm'], dict_matching_files)
+    input_rpm = config['input_rpm']
+    if config['strip_dirname']:
+        input_rpm = os.path.basename(input_rpm)
+    generate_dependency_list(config['output_dep'], input_rpm, dict_matching_files)
 
 if __name__ == '__main__':
     main()
