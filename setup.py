@@ -21,7 +21,7 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name='rpm-make-rules-dependency-lister',
-    packages=['rpm_frontend'],
+    packages=['rpm_make_rules_dependency_lister'],
     python_requires='>=3',
     version='0.3',
     description='Module for analyzing RPM dependencies and speedup RPM building process.',
