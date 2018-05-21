@@ -1,5 +1,7 @@
 # rpm-make-rules-dependency-lister
 
+[![PyPI version](https://badge.fury.io/py/rpm-make-rules-dependency-lister.svg)](https://badge.fury.io/py/rpm-make-rules-dependency-lister)
+
 This is a simple Python3 script that reads an .rpm file and writes an output text file 
 that, if included inside a Makefile, will instruct GNU make about the dependencies 
 of the .rpm, so that such RPM can be rebuilt only when one of the dependencies is updated 
