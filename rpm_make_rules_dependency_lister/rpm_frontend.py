@@ -10,6 +10,7 @@
 #
 
 import getopt, sys, os, subprocess, hashlib
+import pkg_resources  # part of setuptools
 
 ##
 ## GLOBALS
@@ -185,6 +186,21 @@ def generate_dependency_list(outfile, rpm_file, dict_matching_files):
     
     print("Successfully generated dependency list for '{}' in file '{}' listing {} dependencies".format(rpm_file, outfile, len(list_of_files)))
 
+def generate_missed_file_list(outfile, rpm_file, packaged_files_notfound):
+    """Write a text file with the list of packaged files that could not be found inside search folders.
+       The text file is written in a simple CSV format
+    """
+    try:
+        with open(outfile, "w") as f:
+            f.write("File,SHA256SUM\n")
+            for fname,fname_sha256sum in packaged_files_notfound:
+                f.write(("{},{}\n".format(fname,fname_sha256sum)))
+    except (OSError, IOError) as e:
+        print("Failed writing to output file '{}': {}. Aborting".format(outfile, e))
+        sys.exit(2)
+    
+    print("Written list of packaged files not found in file '{}'".format(outfile))
+
 def merge_two_dicts(x, y):
     #z = x.copy()   # start with x's keys and values
     #z.update(y)    # modifies z with y's keys and values & returns None
@@ -206,14 +222,16 @@ def merge_two_dicts(x, y):
 def usage():
     """Provides commandline usage
     """
+    version = pkg_resources.require("rpm_make_rules_dependency_lister")[0].version
+    print('rpm_make_rules_dependency_lister version {}'.format(version))
     print('Usage: %s [--help] [--strict] [--verbose] --input=somefile.rpm [--output=somefile.d] [--search=somefolder1,somefolder2,...]' % sys.argv[0])
     print('Required parameters:')
     print('  [-i] --input=<file.rpm>     The RPM file to analyze.')
     print('Optional parameters:')
     print('  [-h] --help                 (this help)')
     print('  [-v] --verbose              Be verbose.')
-    print('  [-s] --strict               Refuse to generate output dependency file is some packaged file cannot be')
-    print('                              found inside the search folder.')
+    print('  [-s] --strict               Refuse to generate the output dependency file specified by --output if ')
+    print('                              some packaged file cannot be found inside the search folder.')
     print('  [-o] --output=<file.d>      The output file where the list of RPM dependencies will be written;')
     print('                              if not provided the dependency file is written in the same folder of ')
     print('                              input RPM with .d extension in place of .rpm extension.')
@@ -223,13 +241,16 @@ def usage():
     print('  [-d] --search=<dir list>    The directories where RPM packaged files will be searched in (recursively);')
     print('                              this option accepts a comma-separated list of directories;')
     print('                              if not provided the files will be searched in the same folder of input RPM.')
+    print('  [-m] --dump-missed-files=<file.csv>')
+    print('                              Writes in the provided <file.csv> the list of files packaged in the RPM')
+    print('                              that could not be found in the directory search list.')
     sys.exit(0)
     
 def parse_command_line():
     """Parses the command line
     """
     try:
-        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvsotd", ["input=", "help", "verbose", "strict", "output=", "strip-dirname", "search="])
+        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvsotd", ["input=", "help", "verbose", "strict", "output=", "strip-dirname", "search=", "dump-missed-files="])
     except getopt.GetoptError as err:
         # print help information and exit:
         print(str(err))  # will print something like "option -a not recognized"
@@ -239,6 +260,7 @@ def parse_command_line():
     input_rpm = ""
     output_dep = ""
     search_dirs = ""
+    missed_list_outfile = ""
     strict = False
     strip_dirname = False
     for o, a in opts:
@@ -256,11 +278,13 @@ def parse_command_line():
             strip_dirname = True
         elif o in ("-d", "--search"):
             search_dirs = a
+        elif o in ("-m", "--dump-missed-files"):
+            missed_list_outfile = a
         else:
             assert False, "unhandled option " + o + a
 
     if input_rpm == "":
-        print("Please provide --input option")
+        print("Please provide --input option (it is a required option)")
         sys.exit(os.EX_USAGE)
 
     abs_input_rpm = input_rpm
@@ -273,7 +297,8 @@ def parse_command_line():
             'output_dep' : output_dep,
             'search_dirs' : search_dirs,
             'strict': strict,
-            'strip_dirname': strip_dirname }
+            'strip_dirname': strip_dirname,
+            'missed_list_outfile': missed_list_outfile }
 
 ##
 ## MAIN
@@ -328,6 +353,8 @@ def main():
             print("Unable to find {} packaged files inside provided search folders {}. Files packaged and not found (with their SHA256 sum) are:".format(len(packaged_files_notfound), dirs))
             for fname,fname_sha256sum in packaged_files_notfound:
                 print("   {}    {}".format(fname,fname_sha256sum))
+        if len(config['missed_list_outfile'])>0:
+            generate_missed_file_list(config['missed_list_outfile'], config['abs_input_rpm'], packaged_files_notfound)
         if config['strict']:
             print("Aborting output generation (strict mode)")
             sys.exit(3)

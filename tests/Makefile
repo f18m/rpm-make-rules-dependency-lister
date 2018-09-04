@@ -33,7 +33,7 @@ dummy_pkg_contents:
 	rpm_make_rules_dependency_lister -v --strict --input $@
 
 touch_files_pkgA:
-# this will force repackaging of pkgAono  if dependency files have been generated!
+	# this will force repackaging of pkgA if dependency files have been generated!
 	touch dummy-pkg-contents/subdir1/subdir2/test1.txt
 
 touch_files_pkgB:
@@ -43,7 +43,7 @@ touch_files_pkgB:
 test_file_not_found: pkgA-1.2.3-mybuild.x86_64.rpm
 	# force searching in a dummy folder so that we can test how the utility behaves
 	mkdir -p /tmp/dummy1 /tmp/dummy2 /tmp/dummy3
-	rpm_make_rules_dependency_lister -v --strict --input pkgA-1.2.3-mybuild.x86_64.rpm --search=/tmp/dummy1,/tmp/dummy2,/tmp/dummy3
+	rpm_make_rules_dependency_lister -v --strict --input pkgA-1.2.3-mybuild.x86_64.rpm --search=/tmp/dummy1,/tmp/dummy2,/tmp/dummy3 --dump-missed-files=missed-files
 
 test_multi_search_dirs: pkgA-1.2.3-mybuild.x86_64.rpm
 	# search 2 dirs: they should contain all files packaged in pkgA
@@ -51,6 +51,7 @@ test_multi_search_dirs: pkgA-1.2.3-mybuild.x86_64.rpm
 
 clean:
 	rm -f *.rpm
+	rm -f missed-files
 
 distclean: clean
 	rm -f *.d
