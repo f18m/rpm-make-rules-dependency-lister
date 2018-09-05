@@ -174,7 +174,9 @@ def generate_dependency_list(outfile, rpm_file, dict_matching_files):
     list_of_files = []
     for _,set_of_fullpaths in dict_matching_files.items():
         for fullpath in set_of_fullpaths:
-            list_of_files.append(fullpath)
+            # IMPORTANT: GNU make dependencies cannot contain SPACES, at least in all GNU make versions <= 3.82;
+            #            to work around this issue a smart way to proceed is just putting the ? wildcard instead of spaces: 
+            list_of_files.append(fullpath.replace(' ', '?'))
             
     text = rpm_file + ": \\\n\t" + " \\\n\t".join(sorted(list_of_files)) + "\n"
     try:
