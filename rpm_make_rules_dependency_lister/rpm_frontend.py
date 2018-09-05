@@ -254,7 +254,7 @@ def parse_command_line():
     """Parses the command line
     """
     try:
-        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvsotd", ["input=", "help", "verbose", "strict", "output=", "strip-dirname", "search=", "dump-missed-files=", "explicit-dependencies="])
+        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvsotdme", ["input=", "help", "verbose", "strict", "output=", "strip-dirname", "search=", "dump-missed-files=", "explicit-dependencies="])
     except getopt.GetoptError as err:
         # print help information and exit:
         print(str(err))  # will print something like "option -a not recognized"
