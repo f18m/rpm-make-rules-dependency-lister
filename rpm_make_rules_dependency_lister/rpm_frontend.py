@@ -246,13 +246,15 @@ def usage():
     print('  [-m] --dump-missed-files=<file.csv>')
     print('                              Writes in the provided <file.csv> the list of files packaged in the RPM')
     print('                              that could not be found in the directory search list.')
+    print('  [-e] --explicit-dependencies=<file1,file2,...>')
+    print('                              Put the given list of filepaths in the output file as dependencies of the RPM')
     sys.exit(0)
     
 def parse_command_line():
     """Parses the command line
     """
     try:
-        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvsotd", ["input=", "help", "verbose", "strict", "output=", "strip-dirname", "search=", "dump-missed-files="])
+        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvsotd", ["input=", "help", "verbose", "strict", "output=", "strip-dirname", "search=", "dump-missed-files=", "explicit-dependencies="])
     except getopt.GetoptError as err:
         # print help information and exit:
         print(str(err))  # will print something like "option -a not recognized"
@@ -263,6 +265,7 @@ def parse_command_line():
     output_dep = ""
     search_dirs = ""
     missed_list_outfile = ""
+    explicit_deps = ""
     strict = False
     strip_dirname = False
     for o, a in opts:
@@ -282,6 +285,8 @@ def parse_command_line():
             search_dirs = a
         elif o in ("-m", "--dump-missed-files"):
             missed_list_outfile = a
+        elif o in ("-e", "--explicit-dependencies"):
+            explicit_deps = a
         else:
             assert False, "unhandled option " + o + a
 
@@ -300,7 +305,8 @@ def parse_command_line():
             'search_dirs' : search_dirs,
             'strict': strict,
             'strip_dirname': strip_dirname,
-            'missed_list_outfile': missed_list_outfile }
+            'missed_list_outfile': missed_list_outfile,
+            "explicit_dependencies":explicit_deps }
 
 ##
 ## MAIN
@@ -367,6 +373,20 @@ def main():
     input_rpm = config['input_rpm']
     if config['strip_dirname']:
         input_rpm = os.path.basename(input_rpm)
+        
+    # add explicit dependencies provided via command line:
+    if len(config['explicit_dependencies'])>0:
+        for filepath in config['explicit_dependencies'].split(','):
+            filename_only = os.path.basename(filepath)
+            if filename_only:
+                if verbose:
+                    print("Adding as explicit dependency: {}".format(filepath))
+                if filename_only in dict_matching_files:
+                    dict_matching_files[filename_only].add(filepath)
+                else:
+                    dict_matching_files[filename_only]=set([filepath])
+        
+    # finally generate the dependency listing:
     generate_dependency_list(config['output_dep'], input_rpm, dict_matching_files)
 
 if __name__ == '__main__':

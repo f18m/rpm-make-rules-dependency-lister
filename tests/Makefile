@@ -30,7 +30,7 @@ dummy_pkg_contents:
 	@echo "-----------------------------------------------------------------"
 	@echo "--- Generating RPM dependency list for spec file $<"
 	@echo "-----------------------------------------------------------------"
-	rpm_make_rules_dependency_lister -v --strict --input $@
+	rpm_make_rules_dependency_lister -v --strict --input $@ --explicit-dependencies=$<
 
 touch_files_pkgA:
 	# this will force repackaging of pkgA if dependency files have been generated!
@@ -40,6 +40,10 @@ touch_files_pkgB:
 	# this will force repackaging of pkgB if dependency files have been generated!
 	touch dummy-pkg-contents/test3.txt
 
+touch_spec_pkgB:
+	# this will force repackaging of pkgB if dependency files have been generated!
+	touch pkgB.spec
+	
 test_file_not_found: pkgA-1.2.3-mybuild.x86_64.rpm
 	# force searching in a dummy folder so that we can test how the utility behaves
 	mkdir -p /tmp/dummy1 /tmp/dummy2 /tmp/dummy3
