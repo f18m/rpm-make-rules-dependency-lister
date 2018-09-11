@@ -48,10 +48,21 @@ def sha256_checksum(filename, block_size=65536):
             sha256.update(block)
     return sha256.hexdigest()
 
-def get_sha256sum_pairs_from_rpm(rpm_filename):
-    """Extracts sha256sums from an RPM file and creates
+def get_checksum_pairs_from_rpm(rpm_filename):
+    """Extracts sha256sums or md5sums from an RPM file and creates
        a list of pairs
-           (extracted filename + path, sha256sum of the extracted file)
+           (extracted filename + path, sha256sum/md5sum of the extracted file)
+           
+       NOTE: you can assume that if the checksum string is 32chars long it's an MD5SUM while if
+             it is 64chars long it's a SHA256SUM.
+             In practice the configuration used by rpmbuild can be found using:
+                  grep -r filedigest /usr/lib/rpm
+                  
+            /usr/lib/rpm/macros:%_source_filedigest_algorithm    8
+            /usr/lib/rpm/macros:%_binary_filedigest_algorithm    8
+
+             Value "8" means that SHA256SUM will be used. Value "1" means MD5SUM.
+             Other values of the filedigest_algorithm are unknown to me.
     """
     
     if not os.path.isfile(rpm_filename):
@@ -62,7 +73,7 @@ def get_sha256sum_pairs_from_rpm(rpm_filename):
     assert os.path.isabs(rpm_filename)
     try:
         # NOTE: regardless the query tag name "FILEMD5S", what is returned is actually a SHA256!
-        rpm_sha256sums = subprocess.check_output(
+        rpm_checksums = subprocess.check_output(
             "rpm -qp --qf '[%{filenames},%{FILEMD5S}\n]' " + rpm_filename,
              stderr=subprocess.STDOUT,
              shell=True)
@@ -71,24 +82,26 @@ def get_sha256sum_pairs_from_rpm(rpm_filename):
         sys.exit(3)
 
     # convert binary strings \n-separed -> string array
-    rpm_files_comma_checksums = [s.strip().decode("utf-8") for s in rpm_sha256sums.splitlines()]
+    rpm_files_comma_checksums = [s.strip().decode("utf-8") for s in rpm_checksums.splitlines()]
     
     # generate output
     retvalue = []
     for s in rpm_files_comma_checksums:
-        filewithpath,sha256sum = s.split(',')
-        if len(sha256sum)==0:
+        filewithpath,checksum = s.split(',')
+        if len(checksum)==0:
             continue    # if no checksum is present, this is a directory, skip it
+        if len(checksum)!=32 and len(checksum)!=64:
+            print("Found checksum of unexpected len ({} chars): {}. Expecting 32chars MD5SUMs or 64chars SHA256SUM.\n".format(len(checksum), checksum))
         
         assert os.path.isabs(filewithpath)
-        retvalue.append( (filewithpath,sha256sum) )
+        retvalue.append( (filewithpath,checksum) )
 
     if verbose:
         print("The RPM file '{}' packages a total of {} files".format(rpm_filename, len(retvalue)))
 
     return retvalue
 
-def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs, strict_mode):
+def match_checksum_pairs_with_fileystem(abs_filesystem_dir, rpm_checksum_pairs, strict_mode):
     """Walks given filesystem directory and searches for files matching those
        coming from an RPM packaged contents.
        Returns a list of filesystem full paths matching RPM contents and a list of
@@ -121,7 +134,7 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
     packaged_files_notfound = []
     packaged_files_fullpath = {}
     nfound = 0
-    for rpm_file,rpm_sha256sum in rpm_sha256sum_pairs:
+    for rpm_file,rpm_checksum in rpm_checksum_pairs:
         rpm_fname = os.path.basename(rpm_file)
         file_matches = []
         packaged_files_fullpath[rpm_fname]=set()
@@ -130,15 +143,18 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
             dirname_set = all_files_dict[rpm_fname]
             for dirname in dirname_set:
                 filesystem_fullpath = os.path.join(dirname,rpm_fname)
-                filesystem_sha256sum = sha256_checksum(filesystem_fullpath)
-                if filesystem_sha256sum == rpm_sha256sum:
+                if len(rpm_checksum)==32:
+                    filesystem_checksum = md5_checksum(filesystem_fullpath)
+                elif len(rpm_checksum)==64:
+                    filesystem_checksum = sha256_checksum(filesystem_fullpath)
+                if filesystem_checksum == rpm_checksum:
                     # ...and with the same checksum!
                     if verbose:
-                        print("   Found a filesystem file '{}' in directory '{}' with same name and SHA256 sum of an RPM packaged file!".format(rpm_fname, dirname))
+                        print("   Found a filesystem file '{}' in directory '{}' with same name and SHA256/MD5 sum of an RPM packaged file!".format(rpm_fname, dirname))
                     file_matches.append(filesystem_fullpath)
                 
         if len(file_matches) == 0:
-            packaged_files_notfound.append( (rpm_fname,rpm_sha256sum) )
+            packaged_files_notfound.append( (rpm_fname,rpm_checksum) )
         elif len(file_matches) == 1:
             packaged_files_fullpath[rpm_fname].add(file_matches[0])
             nfound=nfound+1
@@ -151,9 +167,9 @@ def match_sha256sum_pairs_with_fileystem(abs_filesystem_dir, rpm_sha256sum_pairs
                 
             if verbose:
                 # Emit a warning but keep going
-                print("   WARNING: found an RPM packaged file '{}' that has the same name and SHA256 sum of multiple files found in the filesystem:".format(rpm_fname))
+                print("   WARNING: found an RPM packaged file '{}' that has the same name and SHA256/MD5 sum of multiple files found in the filesystem:".format(rpm_fname))
                 for filesystem_fullpath in file_matches:
-                    print("      {}    {}".format(filesystem_fullpath,rpm_sha256sum))
+                    print("      {}    {}".format(filesystem_fullpath,rpm_checksum))
                     
             #if strict_mode:
             #print("This breaks 1:1 relationship. Aborting (strict mode).")
@@ -194,9 +210,9 @@ def generate_missed_file_list(outfile, rpm_file, packaged_files_notfound):
     """
     try:
         with open(outfile, "w") as f:
-            f.write("File,SHA256SUM\n")
-            for fname,fname_sha256sum in packaged_files_notfound:
-                f.write(("{},{}\n".format(fname,fname_sha256sum)))
+            f.write("File,SHA256SUM_or_MD5SUM\n")
+            for fname,fname_checksum in packaged_files_notfound:
+                f.write(("{},{}\n".format(fname,fname_checksum)))
     except (OSError, IOError) as e:
         print("Failed writing to output file '{}': {}. Aborting".format(outfile, e))
         sys.exit(2)
@@ -337,20 +353,20 @@ def main():
         output_filename = os.path.splitext(input_rpm_filename)[0] + ".d"
         config['output_dep'] = os.path.join(os.getcwd(), os.path.join(input_rpm_dir, output_filename))
     
-    rpm_file_checksums = get_sha256sum_pairs_from_rpm(config['abs_input_rpm'])
+    rpm_file_checksums = get_checksum_pairs_from_rpm(config['abs_input_rpm'])
     
     dict_matching_files = {}
     for search_dir in search_dirs:
-        a = match_sha256sum_pairs_with_fileystem(search_dir, rpm_file_checksums, config['strict'])
+        a = match_checksum_pairs_with_fileystem(search_dir, rpm_file_checksums, config['strict'])
         dict_matching_files = merge_two_dicts(dict_matching_files,a)
         #packaged_files_notfound = packaged_files_notfound + b
     
     nfound = 0
     packaged_files_notfound = []
-    for rpm_file,rpm_sha256sum in rpm_file_checksums:
+    for rpm_file,rpm_checksum in rpm_file_checksums:
         rpm_fname = os.path.basename(rpm_file)
         if rpm_fname not in dict_matching_files or len(dict_matching_files[rpm_fname])==0:
-            packaged_files_notfound.append( (rpm_fname,rpm_sha256sum) )
+            packaged_files_notfound.append( (rpm_fname,rpm_checksum) )
         else:
             nfound = nfound+1
     
@@ -359,8 +375,8 @@ def main():
         if verbose or config['strict']:
             dirs = ",".join(search_dirs)
             print("Unable to find {} packaged files inside provided search folders {}. Files packaged and not found (with their SHA256 sum) are:".format(len(packaged_files_notfound), dirs))
-            for fname,fname_sha256sum in packaged_files_notfound:
-                print("   {}    {}".format(fname,fname_sha256sum))
+            for fname,fname_checksum in packaged_files_notfound:
+                print("   {}    {}".format(fname,fname_checksum))
         if len(config['missed_list_outfile'])>0:
             generate_missed_file_list(config['missed_list_outfile'], config['abs_input_rpm'], packaged_files_notfound)
         if config['strict']:
