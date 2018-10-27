@@ -180,7 +180,7 @@ def match_checksum_pairs_with_fileystem(abs_filesystem_dir, rpm_checksum_pairs, 
     #return packaged_files_fullpath, packaged_files_notfound
     return packaged_files_fullpath
 
-def generate_dependency_list(outfile, rpm_file, dict_matching_files):
+def generate_dependency_list(outfile, rpm_file, dict_matching_files, generate_empty_recipes):
     """Write a text file (typically the extension is ".d") in a format compatible with GNU
        make. The output text file, if included inside a Makefile, will instruct GNU make 
        about the dependencies of an RPM, so that such RPM can be rebuilt only when one of
@@ -194,7 +194,14 @@ def generate_dependency_list(outfile, rpm_file, dict_matching_files):
             #            to work around this issue a smart way to proceed is just putting the ? wildcard instead of spaces: 
             list_of_files.append(fullpath.replace(' ', '?'))
             
-    text = rpm_file + ": \\\n\t" + " \\\n\t".join(sorted(list_of_files)) + "\n"
+    list_of_files = sorted(list_of_files)
+    text = rpm_file + ": \\\n\t" + " \\\n\t".join(list_of_files) + "\n"
+    
+    if generate_empty_recipes:
+        text += "\n\n# Empty recipes for dependency files (to avoid GNU make failures on dependency file removal):\n"
+        for dep_filename in list_of_files:
+            text += dep_filename + ":\n\n"
+    
     try:
         with open(outfile, "w") as f:
             f.write(text)
@@ -245,32 +252,50 @@ def usage():
     print('Usage: %s [--help] [--strict] [--verbose] --input=somefile.rpm [--output=somefile.d] [--search=somefolder1,somefolder2,...]' % sys.argv[0])
     print('Required parameters:')
     print('  [-i] --input=<file.rpm>     The RPM file to analyze.')
-    print('Optional parameters:')
+    print('Main options:')
     print('  [-h] --help                 (this help)')
     print('  [-v] --verbose              Be verbose.')
-    print('  [-s] --strict               Refuse to generate the output dependency file specified by --output if ')
-    print('                              some packaged file cannot be found inside the search folder.')
     print('  [-o] --output=<file.d>      The output file where the list of RPM dependencies will be written;')
     print('                              if not provided the dependency file is written in the same folder of ')
     print('                              input RPM with .d extension in place of .rpm extension.')
-    print('  [-t] --strip-dirname        In the output dependency file strip the dirname of the provided RPM;')
-    print('                              produces a change in output only if an absolute/relative path is provided')
-    print('                              to --output option (e.g., if --output=a/b/c/myrpm.rpm is given).')
+    print('  [-s] --strict               Refuse to generate the output dependency file specified by --output if ')
+    print('                              some packaged file cannot be found inside the search directories.')
+    print('                              See also the --dump-missed-files option as alternative to --strict.')
+    print('  [-m] --dump-missed-files=<file.csv>')
+    print('                              Writes in the provided <file.csv> the list of files packaged in the RPM')
+    print('                              that could not be found in the search directories.')
     print('  [-d] --search=<dir list>    The directories where RPM packaged files will be searched in (recursively);')
     print('                              this option accepts a comma-separated list of directories;')
     print('                              if not provided the files will be searched in the same folder of input RPM.')
-    print('  [-m] --dump-missed-files=<file.csv>')
-    print('                              Writes in the provided <file.csv> the list of files packaged in the RPM')
-    print('                              that could not be found in the directory search list.')
     print('  [-e] --explicit-dependencies=<file1,file2,...>')
-    print('                              Put the given list of filepaths in the output file as dependencies of the RPM')
+    print('                              Put the given list of filepaths in the output dependency file as explicit')
+    print('                              dependencies of the RPM.')
+    print('Advanced options:')
+    print('  [-t] --strip-dirname        In the output dependency file strip the dirname of the provided RPM;')
+    print('                              produces a change in output only if an absolute/relative path is provided')
+    print('                              to --output option (e.g., if --output=a/b/c/myrpm.rpm is given).')
+    print('  [-n] --no-empty-recipes')
+    print('                              Disable generation of empty recipes for all dependency files.')
+    print('                              Note that empty recipes are useful to avoid GNU make errors when a dependency')
+    print('                              file is removed from the filesystem.')
     sys.exit(0)
+    
+    
+# According to the GNU make User’s Manual section "Rules without Recipes or Prerequisites":
+# If a rule has no prerequisites or recipe, and the target of the rule is a nonexistent file,
+# then `make’ imagines this target to have been updated whenever its rule is run. 
+# This implies that all targets depending on this one will always have their recipes run.
+
+
     
 def parse_command_line():
     """Parses the command line
     """
     try:
-        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvsotdme", ["input=", "help", "verbose", "strict", "output=", "strip-dirname", "search=", "dump-missed-files=", "explicit-dependencies="])
+        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvosmdetn", 
+            ["input=", "help", "verbose", "output=", "strict", 
+             "dump-missed-files=", "search=", "explicit-dependencies=",
+             "strip-dirname", "no-empty-recipes"])
     except getopt.GetoptError as err:
         # print help information and exit:
         print(str(err))  # will print something like "option -a not recognized"
@@ -284,6 +309,7 @@ def parse_command_line():
     explicit_deps = ""
     strict = False
     strip_dirname = False
+    generate_empty_recipes = True
     for o, a in opts:
         if o in ("-i", "--input"):
             input_rpm = a
@@ -303,6 +329,8 @@ def parse_command_line():
             missed_list_outfile = a
         elif o in ("-e", "--explicit-dependencies"):
             explicit_deps = a
+        elif o in ("-n", "--no-empty-recipes"):
+            generate_empty_recipes = False
         else:
             assert False, "unhandled option " + o + a
 
@@ -322,7 +350,8 @@ def parse_command_line():
             'strict': strict,
             'strip_dirname': strip_dirname,
             'missed_list_outfile': missed_list_outfile,
-            "explicit_dependencies":explicit_deps }
+            "explicit_dependencies":explicit_deps,
+            "generate_empty_recipes":generate_empty_recipes }
 
 ##
 ## MAIN
@@ -403,7 +432,7 @@ def main():
                     dict_matching_files[filename_only]=set([filepath])
         
     # finally generate the dependency listing:
-    generate_dependency_list(config['output_dep'], input_rpm, dict_matching_files)
+    generate_dependency_list(config['output_dep'], input_rpm, dict_matching_files, config['generate_empty_recipes'])
 
 if __name__ == '__main__':
     main()

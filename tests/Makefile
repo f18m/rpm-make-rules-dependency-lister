@@ -1,7 +1,13 @@
 #
 # Makefile to build example RPMs and to generate dependency lists using this Python project!
-# See main README.md
+# See main README.md or type "make help" to get more info.
 #
+
+
+#
+# VARIABLES
+#
+
 RPM_VERSION=1.2.3
 RPM_RELEASE=mybuild
 RPM_ARCH=x86_64
@@ -12,7 +18,15 @@ THIS_DIRECTORY := $(shell readlink -f .)
 $(info Target RPMs are: $(ALL_TARGET_RPMS))
 $(info Dependency files are: $(DEP_FILES))
 
-all: dummy_pkg_contents $(ALL_TARGET_RPMS)
+
+
+#
+# TARGETS
+#
+
+.PHONY: all dummy_pkg_contents touch_files_pkgA touch_files_pkgB test_file_not_found test_multi_search_dirs clean distclean help
+
+all: dummy_pkg_contents $(ALL_TARGET_RPMS) help
 
 dummy_pkg_contents:
 	cd dummy-pkg-contents && make
@@ -38,7 +52,7 @@ touch_files_pkgA:
 
 touch_files_pkgB:
 	# this will force repackaging of pkgB if dependency files have been generated!
-	touch dummy-pkg-contents/test3.txt
+	touch dummy-pkg-contents/test-wildcard1.txt
 
 touch_spec_pkgB:
 	# this will force repackaging of pkgB if dependency files have been generated!
@@ -53,6 +67,10 @@ test_multi_search_dirs: pkgA-1.2.3-mybuild.x86_64.rpm
 	# search 2 dirs: they should contain all files packaged in pkgA
 	rpm_make_rules_dependency_lister -v --strict --input pkgA-1.2.3-mybuild.x86_64.rpm --search=$(THIS_DIRECTORY)/dummy-pkg-contents/subdir1,$(THIS_DIRECTORY)/dummy-pkg-contents/subdir3
 
+test_packaged_file_removed:
+	rm -f dummy-pkg-contents/test-wildcard2.txt
+	@echo "Now relaunch 'make', it should not fail but trigger regen of RPM B"
+
 clean:
 	rm -f *.rpm
 	rm -f missed-files
@@ -60,8 +78,25 @@ clean:
 distclean: clean
 	rm -f *.d
 
+help:
+	@echo
+	@echo "-----------------------------------------------------------------"
+	@echo "--- rpm-make-rules-dependency-lister TESTS HELP"
+	@echo "-----------------------------------------------------------------"
+	@echo "To understand the purpose of this small Python utility just type"
+	@echo "   make"
+	@echo "a couple of times: the first one you will see both RPM A and RPM B"
+	@echo "rebuilt and repackaged. The second time the dependency files generated"
+	@echo "on the first run will instruct GNU make that no repackaging is needed."
+	@echo
+	@echo "After that you can play with some tests:"
+	@echo "  make touch_files_pkgA or touch_files_pkgB"
+	@echo "  make test_multi_search_dirs"
+	@echo "  ..."
+	@echo
+
 # 
-# This is the key point of the program:
+# This is the key point of the incremental RPM building process:
 # automatically-generated RPM dependency list is included in this makefile to instruct
 # GNU make about the conditions for re-building the RPM
 #

@@ -17,7 +17,9 @@ Metapackage for example purposes
 %install
 rm -rf %{buildroot}/test-install
 mkdir -p %{buildroot}/test-install
-cp %{topdir}/dummy-pkg-contents/test3.txt						%{buildroot}/test-install
+
+# test wildcard in copy: 
+cp %{topdir}/dummy-pkg-contents/test-wildcard*					%{buildroot}/test-install
 cp %{topdir}/dummy-pkg-contents/testbinary						%{buildroot}/test-install
 
 %clean
