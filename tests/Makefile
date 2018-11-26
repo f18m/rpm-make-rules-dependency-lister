@@ -35,7 +35,7 @@ dummy_pkg_contents:
 	@echo "-----------------------------------------------------------------"
 	@echo "--- Building RPM from spec file $<"
 	@echo "-----------------------------------------------------------------"
-	rpmbuild --clean \
+	rpmbuild --clean --quiet \
 		--define='rpm_version $(RPM_VERSION)' \
 		--define='rpm_release $(RPM_RELEASE)' \
 		--define='topdir $(THIS_DIRECTORY)' \

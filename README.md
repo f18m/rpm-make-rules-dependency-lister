@@ -66,6 +66,24 @@ make                     # now the RPM A is rebuilt!
 Now if your project builds several RPMs, this utility can greatly reduce the time it takes to
 regenerate them!
 
+## How it works
+
+By default the "rpm-make-rules-dependency-lister" utility will create the association
+
+```
+         RPM <-> dependency files
+```
+
+by querying the RPM for the list of checksums (typically MD5 or SHA256 sums) and then trying to match
+all the files recursively found in the list of directories specified with --search option using 2 criteria:
+
+1) the name of the file
+2) its MD5 or SHA256 checksum
+
+The flag --match-executable-by-name-only alters this behavior, for executable files only,
+so that only the first criteria (filename) will be used.
+
+
 ## How to add to your GNU make Makefile
 
 This utility can be chained in your GNU make process by adding just 3 lines to your Makefile:

@@ -48,10 +48,21 @@ def sha256_checksum(filename, block_size=65536):
             sha256.update(block)
     return sha256.hexdigest()
 
-def get_checksum_pairs_from_rpm(rpm_filename):
+def is_executable(permission_int):
+    """Takes a number containing a Unix file permission mode (as reported by RPM utility)
+       and returns True if the file has executable bit set.
+       
+       NOTE: for some reason the modes returned by RPM utility are beyond 777 octal number...
+             so we throw away the additional bits
+    """
+    executable_flag = 0x49  # 0x49 is equal to 0111 octal number, which is the flag for executable bits for USER,GROUP,OTHER
+    return (permission_int & executable_flag) != 0
+
+
+def get_checksum_tuples_from_rpm(rpm_filename):
     """Extracts sha256sums or md5sums from an RPM file and creates
-       a list of pairs
-           (extracted filename + path, sha256sum/md5sum of the extracted file)
+       a list of N-tuples with:
+           (extracted filename + path, sha256sum/md5sum of the extracted file, permissions of extracted filename, is_executable)
            
        NOTE: you can assume that if the checksum string is 32chars long it's an MD5SUM while if
              it is 64chars long it's a SHA256SUM.
@@ -74,7 +85,7 @@ def get_checksum_pairs_from_rpm(rpm_filename):
     try:
         # NOTE: regardless the query tag name "FILEMD5S", what is returned is actually a SHA256!
         rpm_checksums = subprocess.check_output(
-            "rpm -qp --qf '[%{filenames},%{FILEMD5S}\n]' " + rpm_filename,
+            "rpm -qp --qf '[%{filenames},%{FILEMD5S},%{FILEMODES}\n]' " + rpm_filename,
              stderr=subprocess.STDOUT,
              shell=True)
     except subprocess.CalledProcessError as e:
@@ -87,44 +98,84 @@ def get_checksum_pairs_from_rpm(rpm_filename):
     # generate output
     retvalue = []
     for s in rpm_files_comma_checksums:
-        filewithpath,checksum = s.split(',')
+        filewithpath,checksum,permissions = s.split(',')
         if len(checksum)==0:
             continue    # if no checksum is present, this is a directory, skip it
         if len(checksum)!=32 and len(checksum)!=64:
             print("Found checksum of unexpected len ({} chars): {}. Expecting 32chars MD5SUMs or 64chars SHA256SUM.\n".format(len(checksum), checksum))
         
+        permissions=int(permissions)
+        
         assert os.path.isabs(filewithpath)
-        retvalue.append( (filewithpath,checksum) )
+        retvalue.append( (filewithpath,checksum,permissions,is_executable(permissions)) )
 
     if verbose:
         print("The RPM file '{}' packages a total of {} files".format(rpm_filename, len(retvalue)))
 
     return retvalue
 
-def match_checksum_pairs_with_fileystem(abs_filesystem_dir, rpm_checksum_pairs, strict_mode):
-    """Walks given filesystem directory and searches for files matching those
+def get_file_matches(rpm_fname, rpm_checksum, rpm_is_exec, filename2path_dict, filename2permission_dict, nameonly_check_for_exec_files):
+    file_matches = []
+    if rpm_fname not in filename2path_dict:
+        return file_matches
+        
+    # this RPM file has a file with the same name in the filesystem...
+    dirname_list = filename2path_dict[rpm_fname]
+    permission_list = filename2permission_dict[rpm_fname]
+    assert len(dirname_list) == len(permission_list)
+    
+    for num_entries in range(0,len(dirname_list)):
+        dirname = dirname_list[num_entries]
+        filesystem_fullpath = os.path.join(dirname,rpm_fname)
+        filesystem_permissions = permission_list[num_entries]
+        
+        if nameonly_check_for_exec_files and rpm_is_exec:
+            ##if is_executable(filesystem_permissions):
+            if verbose:
+                print("   Found file '{}' in directory '{}' with same name and executable permissions of an RPM packaged file! Adding to dependency list.".format(rpm_fname, dirname))
+            file_matches.append(filesystem_fullpath)
+        else:
+            if len(rpm_checksum)==32:
+                filesystem_checksum = md5_checksum(filesystem_fullpath)
+            elif len(rpm_checksum)==64:
+                filesystem_checksum = sha256_checksum(filesystem_fullpath)
+            if filesystem_checksum == rpm_checksum:
+                # ...and with the same checksum!
+                if verbose:
+                    print("   Found file '{}' in directory '{}' with same name and SHA256/MD5 sum of an RPM packaged file! Adding to dependency list.".format(rpm_fname, dirname))
+                file_matches.append(filesystem_fullpath)
+
+    return file_matches
+
+def match_checksum_tuples_with_fileystem(abs_filesystem_dirs, rpm_checksum_tuples, strict_mode, nameonly_check_for_exec_files):
+    """Walks given filesystem directory list and searches for files matching those
        coming from an RPM packaged contents.
        Returns a list of filesystem full paths matching RPM contents and a list of
        files packaged in the RPM that could not be found:
            {filename_only:set(fullpath_to_file1,...) ... }
     """
     
-    if not os.path.isdir(abs_filesystem_dir):
-        print("No such directory '{}'".format(abs_filesystem_dir))
-        sys.exit(1)
-        
     # traverse root directory, and create an hashmap of the found files
     # this allows us to later search each packaged file in O(1)
-    all_files_dict = {}
+    filename2path_dict = {}
+    filename2permission_dict = {}
     nfound = 0
-    for root, _, files in os.walk(abs_filesystem_dir):
-        for filename_only in files:
-            #print('---' + root + filename_only)
-            nfound=nfound+1
-            if filename_only in all_files_dict:
-                all_files_dict[filename_only].add(root)
-            else:
-                all_files_dict[filename_only]=set([root])
+    
+    for abs_filesystem_dir in abs_filesystem_dirs:
+        if not os.path.isdir(abs_filesystem_dir):
+            print("No such directory '{}'".format(abs_filesystem_dir))
+            sys.exit(1)
+        for root, _, files in os.walk(abs_filesystem_dir):
+            for filename_only in files:
+                #print('---' + root + filename_only)
+                nfound=nfound+1
+                permission_int = os.stat(os.path.join(root,filename_only)).st_mode
+                if filename_only in filename2path_dict:
+                    filename2path_dict[filename_only].append(root)
+                    filename2permission_dict[filename_only].append(permission_int)
+                else:
+                    filename2path_dict[filename_only] = [root]
+                    filename2permission_dict[filename_only] = [permission_int]
             
     if verbose:
         print("** In folder '{}' recursively found a total of {} files".format(abs_filesystem_dir, nfound))
@@ -134,25 +185,12 @@ def match_checksum_pairs_with_fileystem(abs_filesystem_dir, rpm_checksum_pairs, 
     packaged_files_notfound = []
     packaged_files_fullpath = {}
     nfound = 0
-    for rpm_file,rpm_checksum in rpm_checksum_pairs:
+    for rpm_file,rpm_checksum,rpm_permission,rpm_is_exec in rpm_checksum_tuples:
         rpm_fname = os.path.basename(rpm_file)
-        file_matches = []
         packaged_files_fullpath[rpm_fname]=set()
-        if rpm_fname in all_files_dict:
-            # this RPM file has a file with the same name in the filesystem...
-            dirname_set = all_files_dict[rpm_fname]
-            for dirname in dirname_set:
-                filesystem_fullpath = os.path.join(dirname,rpm_fname)
-                if len(rpm_checksum)==32:
-                    filesystem_checksum = md5_checksum(filesystem_fullpath)
-                elif len(rpm_checksum)==64:
-                    filesystem_checksum = sha256_checksum(filesystem_fullpath)
-                if filesystem_checksum == rpm_checksum:
-                    # ...and with the same checksum!
-                    if verbose:
-                        print("   Found a filesystem file '{}' in directory '{}' with same name and SHA256/MD5 sum of an RPM packaged file!".format(rpm_fname, dirname))
-                    file_matches.append(filesystem_fullpath)
-                
+        
+        # query the dictionaries we just created and get N results back:
+        file_matches = get_file_matches(rpm_fname, rpm_checksum, rpm_is_exec, filename2path_dict, filename2permission_dict, nameonly_check_for_exec_files)
         if len(file_matches) == 0:
             packaged_files_notfound.append( (rpm_fname,rpm_checksum) )
         elif len(file_matches) == 1:
@@ -165,11 +203,11 @@ def match_checksum_pairs_with_fileystem(abs_filesystem_dir, rpm_checksum_pairs, 
                 packaged_files_fullpath[rpm_fname].add(filesystem_fullpath)
                 nfound=nfound+1
                 
-            if verbose:
-                # Emit a warning but keep going
-                print("   WARNING: found an RPM packaged file '{}' that has the same name and SHA256/MD5 sum of multiple files found in the filesystem:".format(rpm_fname))
-                for filesystem_fullpath in file_matches:
-                    print("      {}    {}".format(filesystem_fullpath,rpm_checksum))
+            #if verbose:
+            # Emit a warning but keep going
+            print("   WARNING: found an RPM packaged file '{}' that has the same name and SHA256/MD5 sum of multiple files found in the filesystem:".format(rpm_fname))
+            for filesystem_fullpath in file_matches:
+                print("      {}    {}".format(filesystem_fullpath,rpm_checksum))
                     
             #if strict_mode:
             #print("This breaks 1:1 relationship. Aborting (strict mode).")
@@ -208,23 +246,30 @@ def generate_dependency_list(outfile, rpm_file, dict_matching_files, generate_em
     except:
         print("Failed writing to output file '{}'. Aborting".format(outfile))
         sys.exit(2)
-    
-    print("Successfully generated dependency list for '{}' in file '{}' listing {} dependencies".format(rpm_file, outfile, len(list_of_files)))
 
 def generate_missed_file_list(outfile, rpm_file, packaged_files_notfound):
     """Write a text file with the list of packaged files that could not be found inside search folders.
        The text file is written in a simple CSV format
     """
-    try:
-        with open(outfile, "w") as f:
-            f.write("File,SHA256SUM_or_MD5SUM\n")
-            for fname,fname_checksum in packaged_files_notfound:
-                f.write(("{},{}\n".format(fname,fname_checksum)))
-    except (OSError, IOError) as e:
-        print("Failed writing to output file '{}': {}. Aborting".format(outfile, e))
-        sys.exit(2)
+    if len(packaged_files_notfound)>0:
+        try:
+            with open(outfile, "w") as f:
+                f.write("File,SHA256SUM_or_MD5SUM\n")
+                for fname,fname_checksum in packaged_files_notfound:
+                    f.write(("{},{}\n".format(fname,fname_checksum)))
+        except (OSError, IOError) as e:
+            print("Failed writing to output file '{}': {}. Aborting".format(outfile, e))
+            sys.exit(2)
+    else:
+        try:
+            # remove the file (in case it's there since a previous run)
+            os.remove(outfile)
+        except:
+            # ignore errors in delete
+            pass
     
     print("Written list of packaged files not found in file '{}'".format(outfile))
+
 
 def merge_two_dicts(x, y):
     #z = x.copy()   # start with x's keys and values
@@ -271,6 +316,11 @@ def usage():
     print('                              Put the given list of filepaths in the output dependency file as explicit')
     print('                              dependencies of the RPM.')
     print('Advanced options:')
+    print('  [-x] --match-executable-by-name-only')
+    print('                              By default the matching between RPM packaged files and file system files is')
+    print('                              based on filename and MD5/SHA256 sums. This flag will loosen the match criteria')
+    print('                              to the filename only, but only for files packages as executable. This is useful')
+    print('                              in particular for ELF files that may be transformed by RPM macros during packaging.')
     print('  [-t] --strip-dirname        In the output dependency file strip the dirname of the provided RPM;')
     print('                              produces a change in output only if an absolute/relative path is provided')
     print('                              to --output option (e.g., if --output=a/b/c/myrpm.rpm is given).')
@@ -292,10 +342,10 @@ def parse_command_line():
     """Parses the command line
     """
     try:
-        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvosmdetn", 
+        opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvosmdextn", 
             ["input=", "help", "verbose", "output=", "strict", 
              "dump-missed-files=", "search=", "explicit-dependencies=",
-             "strip-dirname", "no-empty-recipes"])
+             "match-executable-by-name-only", "strip-dirname", "no-empty-recipes"])
     except getopt.GetoptError as err:
         # print help information and exit:
         print(str(err))  # will print something like "option -a not recognized"
@@ -310,6 +360,7 @@ def parse_command_line():
     strict = False
     strip_dirname = False
     generate_empty_recipes = True
+    match_exec_by_filename_only = False
     for o, a in opts:
         if o in ("-i", "--input"):
             input_rpm = a
@@ -331,6 +382,8 @@ def parse_command_line():
             explicit_deps = a
         elif o in ("-n", "--no-empty-recipes"):
             generate_empty_recipes = False
+        elif o in ("-x", "--match-executable-by-name-only"):
+            generate_empty_recipes = True
         else:
             assert False, "unhandled option " + o + a
 
@@ -351,7 +404,8 @@ def parse_command_line():
             'strip_dirname': strip_dirname,
             'missed_list_outfile': missed_list_outfile,
             "explicit_dependencies":explicit_deps,
-            "generate_empty_recipes":generate_empty_recipes }
+            "generate_empty_recipes":generate_empty_recipes,
+            "nameonly_check_for_exec_files":generate_empty_recipes }
 
 ##
 ## MAIN
@@ -382,17 +436,18 @@ def main():
         output_filename = os.path.splitext(input_rpm_filename)[0] + ".d"
         config['output_dep'] = os.path.join(os.getcwd(), os.path.join(input_rpm_dir, output_filename))
     
-    rpm_file_checksums = get_checksum_pairs_from_rpm(config['abs_input_rpm'])
+    rpm_file_checksums = get_checksum_tuples_from_rpm(config['abs_input_rpm'])
     
-    dict_matching_files = {}
-    for search_dir in search_dirs:
-        a = match_checksum_pairs_with_fileystem(search_dir, rpm_file_checksums, config['strict'])
-        dict_matching_files = merge_two_dicts(dict_matching_files,a)
+    #dict_matching_files = {}
+    #for search_dir in search_dirs:
+        #a = match_checksum_tuples_with_fileystem(search_dir, rpm_file_checksums, config['strict'], config['nameonly_check_for_exec_files'])
+        #dict_matching_files = merge_two_dicts(dict_matching_files,a)
         #packaged_files_notfound = packaged_files_notfound + b
-    
+    dict_matching_files = match_checksum_tuples_with_fileystem(search_dirs, rpm_file_checksums, config['strict'], config['nameonly_check_for_exec_files'])
+
     nfound = 0
     packaged_files_notfound = []
-    for rpm_file,rpm_checksum in rpm_file_checksums:
+    for rpm_file,rpm_checksum,rpm_permission,rpm_is_exec in rpm_file_checksums:
         rpm_fname = os.path.basename(rpm_file)
         if rpm_fname not in dict_matching_files or len(dict_matching_files[rpm_fname])==0:
             packaged_files_notfound.append( (rpm_fname,rpm_checksum) )
@@ -400,14 +455,15 @@ def main():
             nfound = nfound+1
     
     # report all files not found all together at the end:
+    if len(config['missed_list_outfile'])>0:
+        # generate or remove the list of missed file: 
+        generate_missed_file_list(config['missed_list_outfile'], config['abs_input_rpm'], packaged_files_notfound)
     if len(packaged_files_notfound)>0:
         if verbose or config['strict']:
             dirs = ",".join(search_dirs)
             print("Unable to find {} packaged files inside provided search folders {}. Files packaged and not found (with their SHA256 sum) are:".format(len(packaged_files_notfound), dirs))
             for fname,fname_checksum in packaged_files_notfound:
                 print("   {}    {}".format(fname,fname_checksum))
-        if len(config['missed_list_outfile'])>0:
-            generate_missed_file_list(config['missed_list_outfile'], config['abs_input_rpm'], packaged_files_notfound)
         if config['strict']:
             print("Aborting output generation (strict mode)")
             sys.exit(3)
@@ -433,6 +489,9 @@ def main():
         
     # finally generate the dependency listing:
     generate_dependency_list(config['output_dep'], input_rpm, dict_matching_files, config['generate_empty_recipes'])
+
+    print("Successfully generated dependency list for '{}' in file '{}' listing {} dependencies ({} packaged files are missing)".format(
+        input_rpm, config['output_dep'], len(dict_matching_files.items()), len(packaged_files_notfound)))
 
 if __name__ == '__main__':
     main()
