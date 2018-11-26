@@ -82,6 +82,24 @@ all the files recursively found in the list of directories specified with --sear
 
 The flag --match-executable-by-name-only alters this behavior, for executable files only,
 so that only the first criteria (filename) will be used.
+Indeed the rpmbuild utility ships by default with a number of post-install scripts executed on the
+packaged files. Some of these scripts will alter the packaged files and may change the SHA256 checksum
+used internally by rpm-make-rules-dependency-lister to build the association map 
+"packaged file <-> filesystem dependency".
+An example is the use of the
+
+```
+         %debug_package
+```
+
+RPM macro. In such cases you can use the --match-executable-by-name-only flag or remove these RPM macros.
+A way to get rid of all post-install modification of ELF files is to add:
+
+```
+%global __os_install_post %{nil}
+```
+
+to your SPEC file.
 
 
 ## How to add to your GNU make Makefile
@@ -105,16 +123,3 @@ Finally, at the end of your Makefile add:
 
 That's it!
 
-## Caveats
-
-The rpmbuild utility ships by default with a number of post-install scripts executed on the
-packaged files. Some of these scripts will alter the packaged files and may change the SHA256 checksum
-used internally by rpm-make-rules-dependency-lister to build the association map 
-"packaged file <-> filesystem dependency".
-
-This behavior happens often with binary ELF files. To avoid such behaviour from rpmbuild you can add
-the following line to your .spec file:
-
-```
-%global __os_install_post %{nil}
-```
