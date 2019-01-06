@@ -33,7 +33,7 @@ dummy_pkg_contents:
 
 %-$(RPM_VERSION)-$(RPM_RELEASE).$(RPM_ARCH).rpm: %.spec
 	@echo "-----------------------------------------------------------------"
-	@echo "--- Building RPM from spec file $<"
+	@echo "--- (Re)Building RPM from spec file $<"
 	@echo "-----------------------------------------------------------------"
 	rpmbuild --clean --quiet \
 		--define='rpm_version $(RPM_VERSION)' \

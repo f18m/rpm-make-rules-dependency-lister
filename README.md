@@ -2,9 +2,13 @@
 
 [![PyPI version](https://badge.fury.io/py/rpm-make-rules-dependency-lister.svg)](https://badge.fury.io/py/rpm-make-rules-dependency-lister)
 
-This is a simple Python3 script that reads an .rpm file and writes an output text file 
+This is a tool to allow incremental RPM packaging, which is useful to speed up your testing
+if you have many RPM packages and in your development cycle you often need to have just a few
+of those RPMs actually re-packaged.
+
+In practice this tool is a simple Python3 script that reads an .rpm file and writes an output text file 
 that, if included inside a Makefile, will instruct GNU make about the dependencies 
-of the .rpm, so that such RPM can be rebuilt only when one of the dependencies is updated 
+of the .rpm package, so that such RPM can be rebuilt only when one of the dependencies is updated 
 (rather than unconditionally) thus speeding up the time required by packaging.
 
 This tool is agnostic to the RPM contents, to the programming language(s) used in your project,

@@ -1,0 +1,3 @@
+Identical copies of this text file are present in the list of search directories so that
+the rpm-make-rules-dependency-lister script will emit a warning (if verbose flag is given)
+and will add all the copies as dependencies of the SPEC file.

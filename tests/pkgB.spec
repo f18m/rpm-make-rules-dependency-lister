@@ -22,6 +22,9 @@ mkdir -p %{buildroot}/test-install
 cp %{topdir}/dummy-pkg-contents/test-wildcard*					%{buildroot}/test-install
 cp %{topdir}/dummy-pkg-contents/testbinary						%{buildroot}/test-install
 
+# test packaging a file that appears multiple times inside the search directories:
+cp %{topdir}/dummy-pkg-contents/subdir3/testfile-present-multiple-times.txt 	%{buildroot}/test-install
+
 %clean
 %pre
 %post
