@@ -23,14 +23,14 @@ setup(
     name='rpm-make-rules-dependency-lister',
     packages=['rpm_make_rules_dependency_lister'],
     python_requires='>=3',
-    version='1.10',
+    version='1.11',
     description='Module for analyzing RPM dependencies and speedup RPM building process.',
     long_description=long_description,  # Optional
     long_description_content_type='text/markdown',  # Optional (see note above)
     author='Francesco Montorsi',
     author_email='francesco.montorsi@gmail.com',
     url='https://github.com/f18m/rpm-make-rules-dependency-lister',
-    download_url='https://github.com/f18m/rpm-make-rules-dependency-lister/archive/v1.10.tar.gz',
+    download_url='https://github.com/f18m/rpm-make-rules-dependency-lister/archive/v1.11.tar.gz',
     keywords=['RPM', 'GNU make', 'dependency'],
     classifiers=[
         'Programming Language :: Python :: 3',
