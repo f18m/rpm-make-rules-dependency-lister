@@ -48,6 +48,15 @@ def sha256_checksum(filename, block_size=65536):
             sha256.update(block)
     return sha256.hexdigest()
 
+def get_permissions_safe(filename):
+    try:
+        return os.stat(filename).st_mode
+    except FileNotFoundError as e:
+        # this happens when a BROKEN symlink on the system matches the name of a file packaged inside an RPM
+        if verbose:
+            print("   Cannot stat the filename '{}'".format(filename))
+        return 0 # do not exit!
+
 def is_executable(permission_int):
     """Takes a number containing a Unix file permission mode (as reported by RPM utility)
        and returns True if the file has executable bit set.
@@ -57,7 +66,6 @@ def is_executable(permission_int):
     """
     executable_flag = 0x49  # 0x49 is equal to 0111 octal number, which is the flag for executable bits for USER,GROUP,OTHER
     return (permission_int & executable_flag) != 0
-
 
 def merge_two_dicts(x, y):
     #z = x.copy()   # start with x's keys and values
@@ -209,7 +217,7 @@ class RpmDependencyLister:
                 for filename_only in files:
                     #print('---' + root + filename_only)
                     nfound=nfound+1
-                    permission_int = os.stat(os.path.join(root,filename_only)).st_mode
+                    permission_int = get_permissions_safe(os.path.join(root,filename_only))
                     if filename_only in filename2path_dict:
                         filename2path_dict[filename_only].append(root)
                         filename2permission_dict[filename_only].append(permission_int)
