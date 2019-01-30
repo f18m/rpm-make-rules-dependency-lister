@@ -31,7 +31,6 @@ setup(
     author_email='francesco.montorsi@gmail.com',
     url='https://github.com/f18m/rpm-make-rules-dependency-lister',
     download_url='https://github.com/f18m/rpm-make-rules-dependency-lister/archive/v1.11.1.tar.gz',
-    python_requires='>=3',
     keywords=['RPM', 'GNU make', 'dependency'],
     classifiers=[
         'Programming Language :: Python :: 3',

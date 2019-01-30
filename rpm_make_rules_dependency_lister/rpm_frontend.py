@@ -33,6 +33,9 @@ def md5_checksum(fname):
     except OSError:
         # this happens when a directory is encountered
         return ""
+    except FileNotFoundError:
+        # this happens when a BROKEN symlink on the system matches the name of a file packaged inside an RPM
+        return ""
     except IOError:
         print("Failed opening decompressed file '{}'\n".format(fname))
         sys.exit(3)
@@ -43,9 +46,16 @@ def sha256_checksum(filename, block_size=65536):
     """Computes the SHA256 hash of a file on disk
     """
     sha256 = hashlib.sha256()
-    with open(filename, 'rb') as f:
-        for block in iter(lambda: f.read(block_size), b''):
-            sha256.update(block)
+    try:
+        with open(filename, 'rb') as f:
+            for block in iter(lambda: f.read(block_size), b''):
+                sha256.update(block)
+    except OSError:
+        # this happens when a directory is encountered
+        return ""
+    except FileNotFoundError:
+        # this happens when a BROKEN symlink on the system matches the name of a file packaged inside an RPM
+        return ""
     return sha256.hexdigest()
 
 def get_permissions_safe(filename):
@@ -394,37 +404,39 @@ def usage():
     """
     version = pkg_resources.require("rpm_make_rules_dependency_lister")[0].version
     print('rpm_make_rules_dependency_lister version {}'.format(version))
-    print('Usage: %s [--help] [--strict] [--verbose] --input=somefile.rpm [--output=somefile.d] [--search=somefolder1,somefolder2,...]' % sys.argv[0])
+    print('Typical usage:')
+    print('  %s --input=somefile.rpm [--output=somefile.d] [--search=somefolder1,somefolder2,...]' % sys.argv[0])
     print('Required parameters:')
-    print('  [-i] --input=<file.rpm>     The RPM file to analyze.')
+    print('  -i, --input=<file.rpm>     The RPM file to analyze.')
     print('Main options:')
-    print('  [-h] --help                 (this help)')
-    print('  [-v] --verbose              Be verbose.')
-    print('  [-o] --output=<file.d>      The output file where the list of RPM dependencies will be written;')
+    print('  -h, --help                 (this help)')
+    print('  -v, --verbose              Be verbose.')
+    print('      --version              Print version and exit.')
+    print('  -o, --output=<file.d>      The output file where the list of RPM dependencies will be written;')
     print('                              if not provided the dependency file is written in the same folder of ')
     print('                              input RPM with .d extension in place of .rpm extension.')
-    print('  [-s] --strict               Refuse to generate the output dependency file specified by --output if ')
+    print('  -s, --strict               Refuse to generate the output dependency file specified by --output if ')
     print('                              some packaged file cannot be found inside the search directories.')
     print('                              See also the --dump-missed-files option as alternative to --strict.')
-    print('  [-m] --dump-missed-files=<file.csv>')
+    print('  -m, --dump-missed-files=<file.csv>')
     print('                              Writes in the provided <file.csv> the list of files packaged in the RPM')
     print('                              that could not be found in the search directories.')
-    print('  [-d] --search=<dir list>    The directories where RPM packaged files will be searched in (recursively);')
+    print('  -d, --search=<dir list>    The directories where RPM packaged files will be searched in (recursively);')
     print('                              this option accepts a comma-separated list of directories;')
     print('                              if not provided the files will be searched in the same folder of input RPM.')
-    print('  [-e] --explicit-dependencies=<file1,file2,...>')
+    print('  -e, --explicit-dependencies=<file1,file2,...>')
     print('                              Put the given list of filepaths in the output dependency file as explicit')
     print('                              dependencies of the RPM.')
     print('Advanced options:')
-    print('  [-x] --match-executable-by-name-only')
+    print('  -x, --match-executable-by-name-only')
     print('                              By default the matching between RPM packaged files and file system files is')
     print('                              based on filename and MD5/SHA256 sums. This flag will loosen the match criteria')
     print('                              to the filename only, but only for files packages as executable. This is useful')
     print('                              in particular for ELF files that may be transformed by RPM macros during packaging.')
-    print('  [-t] --strip-dirname        In the output dependency file strip the dirname of the provided RPM;')
+    print('  -t, --strip-dirname        In the output dependency file strip the dirname of the provided RPM;')
     print('                              produces a change in output only if an absolute/relative path is provided')
     print('                              to --output option (e.g., if --output=a/b/c/myrpm.rpm is given).')
-    print('  [-n] --no-empty-recipes')
+    print('  -n, --no-empty-recipes')
     print('                              Disable generation of empty recipes for all dependency files.')
     print('                              Note that empty recipes are useful to avoid GNU make errors when a dependency')
     print('                              file is removed from the filesystem.')
@@ -436,7 +448,7 @@ def parse_command_line():
     """
     try:
         opts, remaining_args = getopt.getopt(sys.argv[1:], "ihvosmdextn", 
-            ["input=", "help", "verbose", "output=", "strict", 
+            ["input=", "help", "verbose", "version", "output=", "strict", 
              "dump-missed-files=", "search=", "explicit-dependencies=",
              "match-executable-by-name-only", "strip-dirname", "no-empty-recipes"])
     except getopt.GetoptError as err:
@@ -445,6 +457,7 @@ def parse_command_line():
         usage()  # will exit program
 
     global verbose
+    version = False
     input_rpm = ""
     output_dep = ""
     search_dirs = ""
@@ -461,6 +474,8 @@ def parse_command_line():
             usage()
         elif o in ("-v", "--verbose"):
             verbose = True
+        elif o in ("--version"):
+            version = True
         elif o in ("-s", "--strict"):
             strict = True
         elif o in ("-o", "--output"):
@@ -479,6 +494,11 @@ def parse_command_line():
             match_exec_by_filename_only = True
         else:
             assert False, "unhandled option " + o + a
+
+    if version:
+        version = pkg_resources.require("rpm_make_rules_dependency_lister")[0].version
+        print("{}".format(version))
+        sys.exit(0)
 
     if input_rpm == "":
         print("Please provide --input option (it is a required option)")
@@ -502,6 +522,15 @@ def parse_command_line():
 
 
 def main():
+    if sys.version_info[0] < 3:
+        # this is useful because on some systems with old versions of the "pip" utility you can download
+        # this package using pip/Python2 even if this package is tagget with python_requires>=3: only
+        # recent pip versions respect that tag! In case an old "pip" version was used tell the user:
+        print('You need to run this with Python 3.')
+        print('If you installed this package with "pip install" please uninstall it using "pip uninstall"')
+        print('and reinstall it using "pip3 install" instead.')
+        sys.exit(1)
+
     config = parse_command_line()
     
     # adjust list of search directories
