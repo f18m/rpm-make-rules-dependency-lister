@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 #
 # Purpose: Read an .rpm file and writes an output text file that, if included inside a 
@@ -54,7 +54,7 @@ def get_permissions_safe(filename):
     except FileNotFoundError as e:
         # this happens when a BROKEN symlink on the system matches the name of a file packaged inside an RPM
         if verbose:
-            print("   Cannot stat the filename '{}'".format(filename))
+            print("   Cannot stat the filename '{}': {}".format(filename, str(e)))
         return 0 # do not exit!
 
 def is_executable(permission_int):
@@ -175,7 +175,7 @@ class RpmDependencyLister:
         for num_entries in range(0,len(dirname_list)):
             dirname = dirname_list[num_entries]
             filesystem_fullpath = os.path.join(dirname,rpm_fname)
-            filesystem_permissions = permission_list[num_entries]
+            #filesystem_permissions = permission_list[num_entries]
             
             if nameonly_check_for_exec_files and rpm_is_exec:
                 ##if is_executable(filesystem_permissions):
@@ -476,7 +476,7 @@ def parse_command_line():
         elif o in ("-n", "--no-empty-recipes"):
             generate_empty_recipes = False
         elif o in ("-x", "--match-executable-by-name-only"):
-            generate_empty_recipes = True
+            match_exec_by_filename_only = True
         else:
             assert False, "unhandled option " + o + a
 
@@ -498,7 +498,7 @@ def parse_command_line():
             'missed_list_outfile': missed_list_outfile,
             "explicit_dependencies":explicit_deps,
             "generate_empty_recipes":generate_empty_recipes,
-            "nameonly_check_for_exec_files":generate_empty_recipes }
+            "nameonly_check_for_exec_files":match_exec_by_filename_only }
 
 
 def main():
